@@ -106,8 +106,8 @@ def ex1_11():
     cnt = 0
     for i in string:
         if i.isdigit():
-            tot+=int(i)
-            cnt+=1
+            tot += int(i)
+            cnt += 1
 
     print('sum of the digits: ', tot)
     if cnt > 0:
