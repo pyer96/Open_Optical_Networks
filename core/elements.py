@@ -182,7 +182,7 @@ class Network:
     def Depth_First_Search(self, nodeStart: str, nodeEnd: str, beingVisited: dict, currentPath: list, allPaths: list):
         beingVisited[nodeStart] = True
         if nodeStart == nodeEnd:
-            allPaths.append(currentPath)
+            allPaths.append(list(currentPath))
             print(allPaths)
             return
 
