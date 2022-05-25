@@ -7,5 +7,6 @@ def main():
     print(network.lines)
     network.find_paths('A', 'D')
 
+
 if __name__ == '__main__':
     main()
