@@ -2,6 +2,7 @@ import json
 import math
 from pathlib import Path
 import science_utils as sci_util
+import matplotlib.pyplot as plt
 
 
 class Signal_Information:
@@ -91,7 +92,7 @@ class Line:
     def __init__(self, label: str, length: float):
         self._label = label
         self._length = length
-        self._successive = {}
+        self._successive: dict = {}
 
     # Instance Variables Getters
     @property
@@ -109,10 +110,10 @@ class Line:
     def label(self, label: str):
         self._label = label
     @length.setter
-    def length(self, length):
+    def length(self, length: float):
         self._length = length
     @successive.setter
-    def successive(self, successive):
+    def successive(self, successive: dict):
         self._successive = successive
 
     # Line Class Methods
@@ -130,10 +131,11 @@ class Line:
 
 
 class Network:
+    'Class that holds information about topology'
     def __init__(self):
         root = Path(__file__).parent.parent
-        self._lines = {}
-        self._nodes = {}
+        self._lines: dict = {}
+        self._nodes: dict = {}
         with open(root / 'resources/nodes.json') as f:
             json_dict = json.load(f)
         for key in json_dict.keys():
@@ -146,14 +148,22 @@ class Network:
                 length = math.sqrt(math.pow(x1 - x2, 2) + math.pow(y1 - y2, 2))
                 self._lines[key + neighbour] = Line(key + neighbour, length)
 
+    # Instance Variables Getters
     @property
     def nodes(self):
         return self._nodes
-
     @property
     def lines(self):
         return self._lines
+    # Instance Variables Setters
+    @nodes.setter
+    def nodes(self, nodes):
+        self._nodes = nodes
+    @lines.setter
+    def lines(self, lines):
+        self._lines = lines
 
+    # Network class Methods
     def connect(self):
         for node in self.nodes.values():
             for neighbour in node.connected_nodes:
@@ -169,7 +179,7 @@ class Network:
         currentPath = [nodeStart]
         self.Depth_First_Search(nodeStart, nodeEnd, beingVisited, currentPath, allPaths)
 
-    def Depth_First_Search(self, nodeStart, nodeEnd, beingVisited, currentPath, allPaths):
+    def Depth_First_Search(self, nodeStart: str, nodeEnd: str, beingVisited: dict, currentPath: list, allPaths: list):
         beingVisited[nodeStart] = True
         if nodeStart == nodeEnd:
             allPaths.append(currentPath)
