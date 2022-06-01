@@ -52,7 +52,7 @@ class Node:
         self._label = label
         self._position: tuple = dictionary['position']
         self._connected_nodes: list = dictionary['connected_nodes']
-        self._successive = {}
+        self._successive: dict = {}
 
     # Instance Variables Getters
     @property
@@ -85,7 +85,7 @@ class Node:
     # Node Class Methods
     def propagate(self, sig_info_obj: Signal_Information):
         sig_info_obj.path.remove(self._label)  # path is a list
-        sig_info_obj.path[0].propagate(sig_info_obj) #TODO (Most likely propagate method to be called is the Line one and not the next Node one)
+        self.successive[sig_info_obj.path[0]].propagate(sig_info_obj)
 
 
 class Line:
@@ -134,8 +134,8 @@ class Network:
     'Class that holds information about topology'
     def __init__(self):
         root = Path(__file__).parent.parent
-        self._lines: dict = {}
-        self._nodes: dict = {}
+        self._lines: dict = {}  # Dictionary of Line objects
+        self._nodes: dict = {}  # Dictionary of Node objects
         with open(root / 'resources/nodes.json') as f:
             json_dict = json.load(f)
         for key in json_dict.keys():
