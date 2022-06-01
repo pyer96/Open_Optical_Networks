@@ -5,8 +5,8 @@ def main():
     network = elements.Network()
     print(network.nodes)
     print(network.lines)
-    network.find_paths('A', 'D')
-
+    test: list = network.find_paths('A', 'D')
+    network.draw()
 
 if __name__ == '__main__':
     main()
