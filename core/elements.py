@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 import science_utils as sci_util
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 class Signal_Information:
@@ -104,8 +105,10 @@ class Node:
 
     # Node Class Methods
     def propagate(self, sig_info_obj: Signal_Information):
-        self.successive[sig_info_obj.path[0] + sig_info_obj.path[1]].propagate(sig_info_obj)
         sig_info_obj.path.remove(self._label)  # path is a list
+        if sig_info_obj.path.__len__() != 0:    # if this node is not the destination one
+            self.successive[self._label + sig_info_obj.path[0]].propagate(sig_info_obj)
+
 
 
 class Line:
@@ -160,6 +163,8 @@ class Network:
         root = Path(__file__).parent.parent
         self._lines: dict = {}  # Dictionary of Line objects
         self._nodes: dict = {}  # Dictionary of Node objects
+        # DATA FRAME FOR COLLECTING SPECTRAL INFORMATION
+        self._weighted_paths: pd.DataFrame = pd.DataFrame(columns=['Path', 'Total Latency', 'Total Noise', 'SNR'])
         with open(root / 'resources/nodes.json') as f:
             json_dict = json.load(f)
         for key in json_dict.keys():
@@ -171,8 +176,15 @@ class Network:
                 y2 = float(json_dict[neighbour]['position'][1])
                 length = math.sqrt(math.pow(x1 - x2, 2) + math.pow(y1 - y2, 2))
                 self._lines[key + neighbour] = Line(key + neighbour, length)
+        self.connect()
+        self._init_weighted_paths()
+
 
     # Instance Variables Getters
+    @property
+    def weighted_paths(self):
+        return self._weighted_paths
+
     @property
     def nodes(self):
         return self._nodes
@@ -182,6 +194,10 @@ class Network:
         return self._lines
 
     # Instance Variables Setters
+    @weighted_paths.setter
+    def weighted_paths(self, dataframe):
+        self._weighted_paths = dataframe
+
     @nodes.setter
     def nodes(self, nodes):
         self._nodes = nodes
@@ -194,9 +210,9 @@ class Network:
     def connect(self):
         for node in self.nodes.values():
             for neighbour in node.connected_nodes:
-                node.successive[node.label + neighbour] = self.lines[node.label + neighbour]
+                node.successive[node.label + neighbour] = self._lines[node.label + neighbour]
         for line in self._lines.values():
-            line.successive[line.label[-1]] = self.nodes[line.label[-1]]
+            line.successive[line.label[-1]] = self._nodes[line.label[-1]]
 
     def find_paths(self, nodeStart, nodeEnd) -> list:
         beingVisited = {}
@@ -211,7 +227,6 @@ class Network:
         beingVisited[nodeStart] = True
         if nodeStart == nodeEnd:
             allPaths.append(list(currentPath))
-            print(allPaths)
             return
 
         for neighbour in self.nodes[nodeStart].connected_nodes:
@@ -225,6 +240,22 @@ class Network:
     def propagate(self, signal_information: Signal_Information) -> Signal_Information:
         self._nodes[signal_information.path[0]].propagate(signal_information)
         return signal_information
+
+    def _init_weighted_paths(self):
+        # FOR EVERY POSSIBLE PATH PROPAGATE A SIGNAL
+        for node in self._nodes.keys():
+            for othernode in self._nodes.keys():
+                if othernode != node:
+                    all_paths_in_between = self.find_paths(node, othernode)
+                    for path in all_paths_in_between:
+                        signal = Signal_Information(1e-3, list(path))
+                        signal_after_propagation = self.propagate(signal)
+                        self._weighted_paths = self._weighted_paths.append({'Path': '->'.join(path),
+                                                      'Total Latency': signal_after_propagation.latency,
+                                                      'Total Noise': signal_after_propagation.noise_power,
+                                                      'SNR': 10 * math.log(
+                                                          signal_after_propagation.signal_power / signal_after_propagation.noise_power)},
+                                                     ignore_index=True)
 
     def draw(self):
         for node in self._nodes.values():

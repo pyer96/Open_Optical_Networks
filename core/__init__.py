@@ -1,12 +1,18 @@
 import elements
-
+import math
 
 def main():
+    signal_power = 1e-3
     network = elements.Network()
-    print(network.nodes)
-    print(network.lines)
-    test: list = network.find_paths('A', 'D')
     network.draw()
+
+    print(network.weighted_paths.to_string())
+
+
+
+
+
+
 
 if __name__ == '__main__':
     main()
