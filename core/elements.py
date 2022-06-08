@@ -1,9 +1,16 @@
+import enum
 import json
 import math
 from pathlib import Path
 import science_utils as sci_util
 import matplotlib.pyplot as plt
 import pandas as pd
+from enum import Enum
+
+
+class State(Enum):
+    free = 1
+    occupied = 2
 
 
 class Signal_Information:
@@ -106,9 +113,8 @@ class Node:
     # Node Class Methods
     def propagate(self, sig_info_obj: Signal_Information):
         sig_info_obj.path.remove(self._label)  # path is a list
-        if sig_info_obj.path.__len__() != 0:    # if this node is not the destination one
+        if sig_info_obj.path.__len__() != 0:  # if this node is not the destination one
             self.successive[self._label + sig_info_obj.path[0]].propagate(sig_info_obj)
-
 
 
 class Line:
@@ -116,21 +122,26 @@ class Line:
         self._label = label
         self._length = length
         self._successive: dict = {}
+        self._state: State = State.free
 
     # Instance Variables Getters
     @property
+    def state(self):
+        return self._state
+    @property
     def label(self):
         return self._label
-
     @property
     def length(self):
         return self._length
-
     @property
     def successive(self):
         return self._successive
 
     # Instance Variables Getters
+    @state.setter
+    def state(self, state: State):
+        self._state = state
     @label.setter
     def label(self, label: str):
         self._label = label
@@ -156,15 +167,60 @@ class Line:
         self.successive[sig_info.path[0]].propagate(sig_info)
 
 
+class Connection:
+    def __init__(self, inp: str, out: str, signal_power: float):
+        self._input: str = inp
+        self._output: str = out
+        self._signal_power: float = sci_util.signal_power
+        self._latency: float = 0  # has to be initialized to zero
+        self._snr: float = 0    # has to be initialized to zero
+
+    # Instance Variables Getters
+    @property
+    def input(self):
+        return self._input
+    @property
+    def output(self):
+        return self._output
+    @property
+    def signal_power(self):
+        return self._signal_power
+    @property
+    def latency(self):
+        return self._latency
+    @property
+    def snr(self):
+        return self._snr
+
+    # Instance Variables Setters
+    @input.setter
+    def input(self, inp: str):
+        self._input = inp
+    @output.setter
+    def output(self, out: str):
+        self._output = out
+    @signal_power.setter
+    def signal_power(self, sig_pow: float):
+        self._signal_power = sig_pow
+    @latency.setter
+    def latency(self, latency: float):
+        self._latency = latency
+    @snr.setter
+    def snr(self, snr: float):
+        self._snr = snr
+
+
 class Network:
     'Class that holds information about topology'
 
     def __init__(self):
         root = Path(__file__).parent.parent
+        # DICTIONARY of LINES objects
         self._lines: dict = {}  # Dictionary of Line objects
+        # DICTIONARY of NODES objects
         self._nodes: dict = {}  # Dictionary of Node objects
-        # DATA FRAME FOR COLLECTING SPECTRAL INFORMATION
-        self._weighted_paths: pd.DataFrame = pd.DataFrame(columns=['Path', 'Total Latency', 'Total Noise', 'SNR'])
+        # DATAFRAME FOR COLLECTING SPECTRAL INFORMATION
+        self._weighted_paths: pd.DataFrame = pd.DataFrame(columns=['Path', 'Total_Latency', 'Total_Noise', 'SNR'])
         with open(root / 'resources/nodes.json') as f:
             json_dict = json.load(f)
         for key in json_dict.keys():
@@ -178,7 +234,6 @@ class Network:
                 self._lines[key + neighbour] = Line(key + neighbour, length)
         self.connect()
         self._init_weighted_paths()
-
 
     # Instance Variables Getters
     @property
@@ -195,7 +250,7 @@ class Network:
 
     # Instance Variables Setters
     @weighted_paths.setter
-    def weighted_paths(self, dataframe):
+    def weighted_paths(self, dataframe: pd.DataFrame):
         self._weighted_paths = dataframe
 
     @nodes.setter
@@ -248,14 +303,14 @@ class Network:
                 if othernode != node:
                     all_paths_in_between = self.find_paths(node, othernode)
                     for path in all_paths_in_between:
-                        signal = Signal_Information(1e-3, list(path))
+                        signal = Signal_Information(sci_util.signal_power, list(path))
                         signal_after_propagation = self.propagate(signal)
                         self._weighted_paths = self._weighted_paths.append({'Path': '->'.join(path),
-                                                      'Total Latency': signal_after_propagation.latency,
-                                                      'Total Noise': signal_after_propagation.noise_power,
-                                                      'SNR': 10 * math.log(
-                                                          signal_after_propagation.signal_power / signal_after_propagation.noise_power)},
-                                                     ignore_index=True)
+                                                                            'Total_Latency': signal_after_propagation.latency,
+                                                                            'Total_Noise': signal_after_propagation.noise_power,
+                                                                            'SNR': 10 * math.log(
+                                                                                signal_after_propagation.signal_power / signal_after_propagation.noise_power)},
+                                                                           ignore_index=True)
 
     def draw(self):
         for node in self._nodes.values():
@@ -274,3 +329,47 @@ class Network:
         plt.ylabel(r'$y\ [km]$')
         plt.grid()
         plt.show()
+
+    def find_best_snr(self, start_node: str, dst_node: str) -> list[str]:
+        routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
+                                      self._weighted_paths.Path.str.endswith(dst_node)]
+        routes = routes.reset_index(drop=True)
+        index_of_max_snr = routes['SNR'].idxmax()
+        path = str(routes.iloc[[index_of_max_snr]]['Path'].values[0])
+        path = path.split("->")
+        # TODO
+        #   path_is_available = True
+        #    for i in range(len(path) - 1):
+        #        if self.lines[path[i]+path[i+1]].state = elements.State.
+        return path
+
+    def find_best_latency(self, start_node: str, dst_node: str) -> list[str]:
+        routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
+                                      self._weighted_paths.Path.str.endswith(dst_node)]
+        routes = routes.reset_index(drop=True)
+        index_of_min_latency = routes['Total_Latency'].idxmin()
+        path = str(routes.iloc[[index_of_min_latency]]['Path'].values[0])
+        path = path.split("->")
+        return path
+
+    def stream(self, connections_list : list[Connection], optimizeWhat: str = "latency"):
+        if optimizeWhat == "latency":
+            for connection in connections_list:
+                path_with_lowest_latency = self.find_best_latency(connection.input, connection.output)
+                sig = Signal_Information(connection.signal_power,path_with_lowest_latency)
+                sig_after_propagation = self.propagate(sig)
+                connection.latency = sig_after_propagation.latency
+                connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+        elif optimizeWhat == "snr":
+            for connection in connections_list:
+                path_with_best_snr = self.find_best_snr(connection.input, connection.output)
+                sig = Signal_Information(connection.signal_power, path_with_best_snr)
+                sig_after_propagation = self.propagate(sig)
+                connection.latency = sig_after_propagation.latency
+                connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+
+
+
+
+
+
