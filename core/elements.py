@@ -69,6 +69,20 @@ class Signal_Information:
         self._path.pop(0)
 
 
+class Lightpath(Signal_Information):
+    def __init__(self, signal_power: float, path: list, channel: int):
+        Signal_Information.__init__(self, signal_power, path)
+        self._channel = channel
+
+    @property
+    def channel(self):
+        return self._channel
+
+    @channel.setter
+    def channel(self, ch: int):
+        self._channel = ch
+
+
 class Node:
     def __init__(self, label: str, dictionary: dict):
         self._label: str = label
@@ -334,39 +348,73 @@ class Network:
         routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
                                       self._weighted_paths.Path.str.endswith(dst_node)]
         routes = routes.reset_index(drop=True)
-        index_of_max_snr = routes['SNR'].idxmax()
-        path = str(routes.iloc[[index_of_max_snr]]['Path'].values[0])
-        path = path.split("->")
-        # TODO
-        #   path_is_available = True
-        #    for i in range(len(path) - 1):
-        #        if self.lines[path[i]+path[i+1]].state = elements.State.
-        return path
+        while routes.shape[0] > 0:
+            # Identify the path with the best snr available
+            index_of_max_snr = routes['SNR'].idxmax()
+            path = str(routes.iloc[[index_of_max_snr]]['Path'].values[0])
+            path = path.split("->")
+            path_is_available = True
+            for i in range(len(path)-1):
+                if self._lines[path[i]+path[i+1]].state == State.occupied:
+                    path_is_available = False
+                    routes: pd.DataFrame = routes.drop(routes.index[index_of_max_snr])
+                    routes = routes.reset_index(drop=True)
+                    break   # exit from for loop
+            # If all lines are available set them as occupied and return the path
+            if path_is_available:
+                for i in range(len(path)-1):
+                    self._lines[path[i]+path[i+1]].state = State.occupied
+                return path
+        return []
 
     def find_best_latency(self, start_node: str, dst_node: str) -> list[str]:
         routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
                                       self._weighted_paths.Path.str.endswith(dst_node)]
         routes = routes.reset_index(drop=True)
-        index_of_min_latency = routes['Total_Latency'].idxmin()
-        path = str(routes.iloc[[index_of_min_latency]]['Path'].values[0])
-        path = path.split("->")
-        return path
+        while routes.shape[0] > 0:
+            # Identify the path with the lowest latency available
+            index_of_min_latency = routes['Total_Latency'].idxmin()
+            path = str(routes.iloc[[index_of_min_latency]]['Path'].values[0])
+            path = path.split("->")
+            path_is_available = True
+            for i in range(len(path) - 1):
+                if self._lines[path[i] + path[i + 1]].state == State.occupied:
+                    path_is_available = False
+                    routes: pd.DataFrame = routes.drop(routes.index[index_of_min_latency])
+                    routes = routes.reset_index(drop=True)
+                    break  # exit from for loop
+            # If all lines are available set them as occupied and return the path
+            if path_is_available:
+                for i in range(len(path) - 1):
+                    self._lines[path[i] + path[i + 1]].state = State.occupied
+                return path
+        return []
 
-    def stream(self, connections_list : list[Connection], optimizeWhat: str = "latency"):
+    def stream(self, connections_list: list[Connection], optimizeWhat: str = "latency"):
         if optimizeWhat == "latency":
             for connection in connections_list:
                 path_with_lowest_latency = self.find_best_latency(connection.input, connection.output)
-                sig = Signal_Information(connection.signal_power,path_with_lowest_latency)
-                sig_after_propagation = self.propagate(sig)
-                connection.latency = sig_after_propagation.latency
-                connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+                if len(path_with_lowest_latency) > 0:
+                    sig = Signal_Information(connection.signal_power,path_with_lowest_latency)
+                    sig_after_propagation = self.propagate(sig)
+                    connection.latency = sig_after_propagation.latency
+                    connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+                elif len(path_with_lowest_latency) == 0:
+                    connection.latency = 'None'
+                    connection.snr = 0
         elif optimizeWhat == "snr":
             for connection in connections_list:
                 path_with_best_snr = self.find_best_snr(connection.input, connection.output)
-                sig = Signal_Information(connection.signal_power, path_with_best_snr)
-                sig_after_propagation = self.propagate(sig)
-                connection.latency = sig_after_propagation.latency
-                connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+                if len(path_with_best_snr) > 0:
+                    sig = Signal_Information(connection.signal_power, path_with_best_snr)
+                    sig_after_propagation = self.propagate(sig)
+                    connection.latency = sig_after_propagation.latency
+                    connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+                elif len(path_with_best_snr) == 0:
+                    connection.latency = 'None'
+                    connection.snr = 0
+
+
 
 
 

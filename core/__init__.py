@@ -20,6 +20,7 @@ def main():
         list_of_connections.append(elements.Connection(start_node, dst_node, signal_power))
     network.stream(list_of_connections, "latency")
     utils.plot_connections_latencies_distribution(list_of_connections)
+    utils.free_all_lines(network.lines)
     del list_of_connections
 
     # Create 100 connections with random starting and ending nodes and signal power of 1W
@@ -35,8 +36,8 @@ def main():
         list_of_connections.append(elements.Connection(start_node, dst_node, signal_power))
     network.stream(list_of_connections, "snr")
     utils.plot_connections_snr_distribution(list_of_connections)
-
-
+    utils.free_all_lines(network.lines)
+    del list_of_connections
 
 
 

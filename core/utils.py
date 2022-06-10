@@ -6,13 +6,17 @@ import matplotlib.pyplot as plt
 def plot_connections_latencies_distribution(list_of_connections: list[elements.Connection]):
     latencies = []
     for conn in list_of_connections:
-        latencies.append(conn.latency*1e3)
+        if conn.latency == 'None':
+            latencies.append(-1)
+        else:
+            latencies.append(conn.latency*1e3)
 
     sns.displot(latencies)
     plt.title(r"$latencies\ distribution\ for\ 100\ connections\ served\ with\ latency\ optimization$")
     plt.xlabel(r'$milliseconds$')
     plt.ylabel(r'$count$')
     plt.show()
+
 
 def plot_connections_snr_distribution(list_of_connections: list[elements.Connection]):
     snrs = []
@@ -24,3 +28,8 @@ def plot_connections_snr_distribution(list_of_connections: list[elements.Connect
     plt.xlabel(r'$dB$')
     plt.ylabel(r'$count$')
     plt.show()
+
+
+def free_all_lines(lines: dict[elements.Line]):
+    for Line in lines.values():
+        Line.state = elements.State.free
