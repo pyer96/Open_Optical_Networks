@@ -30,6 +30,7 @@ def plot_connections_snr_distribution(list_of_connections: list[elements.Connect
     plt.show()
 
 
-def free_all_lines(lines: dict[elements.Line]):
-    for Line in lines.values():
-        Line.state = elements.State.free
+def free_all_lines(network: elements.Network):
+    for Line in network.lines.values():
+        Line.state = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
+    network._init_route_space()

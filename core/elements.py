@@ -1,16 +1,10 @@
-import enum
 import json
 import math
 from pathlib import Path
 import science_utils as sci_util
 import matplotlib.pyplot as plt
 import pandas as pd
-from enum import Enum
 
-
-class State(Enum):
-    free = 1
-    occupied = 2
 
 
 class Signal_Information:
@@ -125,10 +119,15 @@ class Node:
         self._successive = succ
 
     # Node Class Methods
-    def propagate(self, sig_info_obj: Signal_Information):
-        sig_info_obj.path.remove(self._label)  # path is a list
-        if sig_info_obj.path.__len__() != 0:  # if this node is not the destination one
-            self.successive[self._label + sig_info_obj.path[0]].propagate(sig_info_obj)
+    def propagate(self, lightpath: Lightpath):
+        lightpath.path.remove(self._label)  # path is a list
+        if lightpath.path.__len__() != 0:  # if this node is not the destination one
+            self.successive[self._label + lightpath.path[0]].propagate(lightpath)
+
+    def probe(self, sig_info: Signal_Information):
+        sig_info.path.remove(self._label)   # path is a list
+        if sig_info.path.__len__() != 0:
+            self.successive[self._label + sig_info.path[0]].probe(sig_info)
 
 
 class Line:
@@ -136,7 +135,7 @@ class Line:
         self._label = label
         self._length = length
         self._successive: dict = {}
-        self._state: State = State.free
+        self._state: list[str] = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
 
     # Instance Variables Getters
     @property
@@ -154,7 +153,7 @@ class Line:
 
     # Instance Variables Getters
     @state.setter
-    def state(self, state: State):
+    def state(self, state: list[str]):
         self._state = state
     @label.setter
     def label(self, label: str):
@@ -175,10 +174,17 @@ class Line:
     def noise_generation(self, signal_power: float):
         return 1e-9 * signal_power * self._length
 
-    def propagate(self, sig_info: Signal_Information):
+    def probe(self, sig_info: Signal_Information):
         sig_info.increment_noise_power(self.noise_generation(sig_info.signal_power))
         sig_info.increment_latency(self.latency_generation())
-        self.successive[sig_info.path[0]].propagate(sig_info)
+        self.successive[sig_info.path[0]].probe(sig_info)
+
+    def propagate(self, lightpath: Lightpath):
+        # set the corresponding channel as occupied
+        self._state[lightpath.channel] = 'occupied'
+        lightpath.increment_noise_power(self.noise_generation(lightpath.signal_power))
+        lightpath.increment_latency(self.latency_generation())
+        self.successive[lightpath.path[0]].propagate(lightpath)
 
 
 class Connection:
@@ -226,7 +232,6 @@ class Connection:
 
 class Network:
     'Class that holds information about topology'
-
     def __init__(self):
         root = Path(__file__).parent.parent
         # DICTIONARY of LINES objects
@@ -235,6 +240,7 @@ class Network:
         self._nodes: dict = {}  # Dictionary of Node objects
         # DATAFRAME FOR COLLECTING SPECTRAL INFORMATION
         self._weighted_paths: pd.DataFrame = pd.DataFrame(columns=['Path', 'Total_Latency', 'Total_Noise', 'SNR'])
+        self._route_space: pd.DataFrame = pd.DataFrame(columns=['Path', 'Channel_Occupancy'])
         with open(root / 'resources/nodes.json') as f:
             json_dict = json.load(f)
         for key in json_dict.keys():
@@ -248,6 +254,7 @@ class Network:
                 self._lines[key + neighbour] = Line(key + neighbour, length)
         self.connect()
         self._init_weighted_paths()
+        self._init_route_space()
 
     # Instance Variables Getters
     @property
@@ -255,9 +262,11 @@ class Network:
         return self._weighted_paths
 
     @property
+    def route_space(self):
+        return self._route_space
+    @property
     def nodes(self):
         return self._nodes
-
     @property
     def lines(self):
         return self._lines
@@ -266,6 +275,10 @@ class Network:
     @weighted_paths.setter
     def weighted_paths(self, dataframe: pd.DataFrame):
         self._weighted_paths = dataframe
+
+    @route_space.setter
+    def route_space(self, dataframe: pd.DataFrame):
+        self._route_space = dataframe
 
     @nodes.setter
     def nodes(self, nodes):
@@ -306,8 +319,12 @@ class Network:
                 beingVisited[neighbour] = False
         beingVisited[nodeStart] = False
 
-    def propagate(self, signal_information: Signal_Information) -> Signal_Information:
-        self._nodes[signal_information.path[0]].propagate(signal_information)
+    def propagate(self, lightpath: Lightpath) -> Lightpath:
+        self._nodes[lightpath.path[0]].propagate(lightpath)
+        return lightpath
+
+    def probe(self, signal_information: Signal_Information) -> Signal_Information:
+        self._nodes[signal_information.path[0]].probe(signal_information)
         return signal_information
 
     def _init_weighted_paths(self):
@@ -318,13 +335,39 @@ class Network:
                     all_paths_in_between = self.find_paths(node, othernode)
                     for path in all_paths_in_between:
                         signal = Signal_Information(sci_util.signal_power, list(path))
-                        signal_after_propagation = self.propagate(signal)
+                        signal_after_propagation = self.probe(signal)
                         self._weighted_paths = self._weighted_paths.append({'Path': '->'.join(path),
                                                                             'Total_Latency': signal_after_propagation.latency,
                                                                             'Total_Noise': signal_after_propagation.noise_power,
                                                                             'SNR': 10 * math.log(
                                                                                 signal_after_propagation.signal_power / signal_after_propagation.noise_power)},
                                                                            ignore_index=True)
+
+    def _init_route_space(self):
+        self._route_space['Path'] = self.weighted_paths['Path']
+        for i in range(self.weighted_paths.shape[0]):
+            self._route_space._set_value(i, 'Channel_Occupancy', ['free'] * 10)
+
+    def _update_route_space(self, path: list[str], channel: int):
+        # when we propagate a lightpath each line sets the state of the corresponding channel to occupied
+        for i in range(self._route_space.shape[0]):
+            path = self._route_space['Path'][i]
+            path = path.split('->')
+            channel_occupancy = ['free'] * 10
+            # for every route we prepare a list o all its line labels
+            lines = []
+            for j in range(len(path)-1):
+                lines.append(path[j]+path[j+1])
+            # for line we count for the occupied channels
+            for line in lines:
+                for channel in range(10):
+                    if self._lines[line].state[channel] == 'occupied':
+                        channel_occupancy[channel] = 'occupied'
+            # update the overall path with the channel occupancy status
+            self._route_space._set_value(i, 'Channel_Occupancy', channel_occupancy)
+
+
+
 
     def draw(self):
         for node in self._nodes.values():
@@ -344,7 +387,7 @@ class Network:
         plt.grid()
         plt.show()
 
-    def find_best_snr(self, start_node: str, dst_node: str) -> list[str]:
+    def find_best_snr(self, start_node: str, dst_node: str) -> (list[str], int):
         routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
                                       self._weighted_paths.Path.str.endswith(dst_node)]
         routes = routes.reset_index(drop=True)
@@ -352,22 +395,19 @@ class Network:
             # Identify the path with the best snr available
             index_of_max_snr = routes['SNR'].idxmax()
             path = str(routes.iloc[[index_of_max_snr]]['Path'].values[0])
-            path = path.split("->")
-            path_is_available = True
-            for i in range(len(path)-1):
-                if self._lines[path[i]+path[i+1]].state == State.occupied:
-                    path_is_available = False
-                    routes: pd.DataFrame = routes.drop(routes.index[index_of_max_snr])
-                    routes = routes.reset_index(drop=True)
-                    break   # exit from for loop
-            # If all lines are available set them as occupied and return the path
-            if path_is_available:
-                for i in range(len(path)-1):
-                    self._lines[path[i]+path[i+1]].state = State.occupied
-                return path
-        return []
+            # we retrieve the channel occupancy within this path
+            channel_occupancy_list = self._route_space[self.route_space['Path'] == path]['Channel_Occupancy'].values[0]
+            # we choose a free channel
+            if 'free' in channel_occupancy_list:
+                channel = channel_occupancy_list.index('free')
+                path = path.split('->')
+                return path, channel
+            else:
+                routes: pd.DataFrame = routes.drop(routes.index[index_of_max_snr])
+                routes = routes.reset_index(drop=True)
+        return [], 'None'
 
-    def find_best_latency(self, start_node: str, dst_node: str) -> list[str]:
+    def find_best_latency(self, start_node: str, dst_node: str) -> (list[str], int):
         routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
                                       self._weighted_paths.Path.str.endswith(dst_node)]
         routes = routes.reset_index(drop=True)
@@ -375,41 +415,40 @@ class Network:
             # Identify the path with the lowest latency available
             index_of_min_latency = routes['Total_Latency'].idxmin()
             path = str(routes.iloc[[index_of_min_latency]]['Path'].values[0])
-            path = path.split("->")
-            path_is_available = True
-            for i in range(len(path) - 1):
-                if self._lines[path[i] + path[i + 1]].state == State.occupied:
-                    path_is_available = False
-                    routes: pd.DataFrame = routes.drop(routes.index[index_of_min_latency])
-                    routes = routes.reset_index(drop=True)
-                    break  # exit from for loop
-            # If all lines are available set them as occupied and return the path
-            if path_is_available:
-                for i in range(len(path) - 1):
-                    self._lines[path[i] + path[i + 1]].state = State.occupied
-                return path
-        return []
+            # we retrieve the channel occupancy within this path
+            channel_occupancy_list = self._route_space[self.route_space['Path'] == path]['Channel_Occupancy'].values[0]
+            # we choose a free channel
+            if 'free' in channel_occupancy_list:
+                channel = channel_occupancy_list.index('free')
+                path = path.split('->')
+                return path, channel
+            else:
+                routes: pd.DataFrame = routes.drop(routes.index[index_of_min_latency])
+                routes = routes.reset_index(drop=True)
+        return [], 'None'
+
 
     def stream(self, connections_list: list[Connection], optimizeWhat: str = "latency"):
         if optimizeWhat == "latency":
             for connection in connections_list:
-                path_with_lowest_latency = self.find_best_latency(connection.input, connection.output)
+                path_with_lowest_latency, channel = self.find_best_latency(connection.input, connection.output)
                 if len(path_with_lowest_latency) > 0:
-                    sig = Signal_Information(connection.signal_power,path_with_lowest_latency)
-                    sig_after_propagation = self.propagate(sig)
-                    connection.latency = sig_after_propagation.latency
-                    connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+                    lightpath = Lightpath(connection.signal_power, path_with_lowest_latency, channel)
+                    lightpath_after_propagation = self.propagate(lightpath)
+                    connection.latency = lightpath_after_propagation.latency
+                    connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    self._update_route_space(path_with_lowest_latency, channel)
                 elif len(path_with_lowest_latency) == 0:
                     connection.latency = 'None'
                     connection.snr = 0
         elif optimizeWhat == "snr":
             for connection in connections_list:
-                path_with_best_snr = self.find_best_snr(connection.input, connection.output)
+                path_with_best_snr, channel = self.find_best_snr(connection.input, connection.output)
                 if len(path_with_best_snr) > 0:
-                    sig = Signal_Information(connection.signal_power, path_with_best_snr)
-                    sig_after_propagation = self.propagate(sig)
-                    connection.latency = sig_after_propagation.latency
-                    connection.snr = 10 * math.log(sig_after_propagation.signal_power / sig_after_propagation.noise_power)
+                    lightpath = Lightpath(connection.signal_power,path_with_best_snr,channel)
+                    lightpath_after_propagation = self.propagate(lightpath)
+                    connection.latency = lightpath_after_propagation.latency
+                    connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
                 elif len(path_with_best_snr) == 0:
                     connection.latency = 'None'
                     connection.snr = 0
