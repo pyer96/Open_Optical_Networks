@@ -58,8 +58,8 @@ def lab5exercise(network):
 def main():
     network = elements.Network()
     network.draw()
-#    lab4exercises(network)
-    lab5exercise(network)
+    lab4exercises(network)
+#    lab5exercise(network)
 
 
 

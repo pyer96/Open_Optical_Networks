@@ -4,6 +4,8 @@ from pathlib import Path
 import science_utils as sci_util
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+import parameters as params
 
 
 
@@ -83,8 +85,13 @@ class Node:
         self._position: tuple = dictionary['position']
         self._connected_nodes: list = dictionary['connected_nodes']
         self._successive: dict = {}
+        self._switching_matrix = None
 
     # Instance Variables Getters
+    @property
+    def switching_matrix(self):
+        return self._switching_matrix
+
     @property
     def label(self):
         return self._label
@@ -109,6 +116,10 @@ class Node:
     @position.setter
     def position(self, pos):
         self._position = pos
+
+    @switching_matrix.setter
+    def switching_matrix(self, switching_matrix):
+        self._switching_matrix = switching_matrix
 
     @connected_nodes.setter
     def connected_nodes(self, connected_nodes):
@@ -291,8 +302,17 @@ class Network:
     # Network class Methods
     def connect(self):
         for node in self.nodes.values():
+            # Initialize each node's switching matrix
+            node.switching_matrix = {}
             for neighbour in node.connected_nodes:
                 node.successive[node.label + neighbour] = self._lines[node.label + neighbour]
+                # For the switching matrix initialization
+                node.switching_matrix[neighbour] = {}
+                for other_neighbour in node.connected_nodes:
+                    if other_neighbour == neighbour:
+                        node.switching_matrix[neighbour][other_neighbour] = np.zeros(params.NUM_CHANNELS)
+                    elif other_neighbour != neighbour:
+                        node.switching_matrix[neighbour][other_neighbour] = np.ones(params.NUM_CHANNELS)
         for line in self._lines.values():
             line.successive[line.label[-1]] = self._nodes[line.label[-1]]
 
@@ -352,22 +372,31 @@ class Network:
         # when we propagate a lightpath each line sets the state of the corresponding channel to occupied
         for i in range(self._route_space.shape[0]):
             path = self._route_space['Path'][i]
-            path = path.split('->')
-            channel_occupancy = ['free'] * 10
+            nodes = path.split('->')
+            channel_occupancy = ['free'] * params.NUM_CHANNELS
             # for every route we prepare a list o all its line labels
             lines = []
-            for j in range(len(path)-1):
-                lines.append(path[j]+path[j+1])
+            for j in range(len(nodes)-1):
+                lines.append(nodes[j]+nodes[j+1])
             # for line we count for the occupied channels
-            for line in lines:
-                for channel in range(10):
-                    if self._lines[line].state[channel] == 'occupied':
-                        channel_occupancy[channel] = 'occupied'
+            for line_index in range(len(lines)):
+                for channel in range(params.NUM_CHANNELS):
+                    if lines[line_index] != lines[-1]:  # if it is not the last line of the path we check both the line
+                        # state and the arrival node's switching matrix in order to check if it's feasible for him to
+                        # forward the connection
+                        if self._lines[lines[line_index]].state[channel] == 'free' \
+                          and self._nodes[lines[line_index][-1]].switching_matrix[lines[line_index][0]][lines[line_index+1][-1]][channel] == 1:
+                            channel_occupancy[channel] = 'free'
+                        else:
+                            channel_occupancy[channel] = 'occupied'
+                    elif lines[line_index] == lines[-1]: # if it is the last line of the path we just need to check the line state
+                        # and not the last node's capability of switching the request
+                        if self._lines[lines[line_index]].state[channel] == 'free':
+                            channel_occupancy[channel] = 'free'
+                        else:
+                            channel_occupancy[channel] = 'occupied'
             # update the overall path with the channel occupancy status
             self._route_space._set_value(i, 'Channel_Occupancy', channel_occupancy)
-
-
-
 
     def draw(self):
         for node in self._nodes.values():
@@ -426,7 +455,6 @@ class Network:
                 routes: pd.DataFrame = routes.drop(routes.index[index_of_min_latency])
                 routes = routes.reset_index(drop=True)
         return [], 'None'
-
 
     def stream(self, connections_list: list[Connection], optimizeWhat: str = "latency"):
         if optimizeWhat == "latency":
