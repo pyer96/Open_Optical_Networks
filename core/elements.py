@@ -1,3 +1,4 @@
+import copy
 import json
 import math
 from pathlib import Path
@@ -134,6 +135,18 @@ class Node:
         lightpath.path.remove(self._label)  # path is a list
         if lightpath.path.__len__() != 0:  # if this node is not the destination one
             self.successive[self._label + lightpath.path[0]].propagate(lightpath)
+        if params.DINAMIC_SWITCHING_MATRIX == True:
+            # Set the switching matrix of the next node to zero for the neighboring channels to the one being switched
+            if lightpath.path.__len__() > 1:
+                channel = lightpath.channel
+                sx_channel = channel-1
+                dx_channel = channel+1
+                if sx_channel >= 0:     # channel 0 doesn't cause any interference on the not existing channel -1
+                    self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]]\
+                        .switching_matrix[self._label][lightpath.path[1]][sx_channel] = 0
+                if dx_channel <= 9:     # channel 9 doesn't cause any interference on the not existing channel 10
+                    self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]] \
+                        .switching_matrix[self._label][lightpath.path[1]][dx_channel] = 0
 
     def probe(self, sig_info: Signal_Information):
         sig_info.path.remove(self._label)   # path is a list
@@ -199,10 +212,10 @@ class Line:
 
 
 class Connection:
-    def __init__(self, inp: str, out: str, signal_power: float):
+    def __init__(self, inp: str, out: str, signal_power: float = sci_util.signal_power):
         self._input: str = inp
         self._output: str = out
-        self._signal_power: float = sci_util.signal_power
+        self._signal_power: float = signal_power
         self._latency: float = 0  # has to be initialized to zero
         self._snr: float = 0    # has to be initialized to zero
 
@@ -243,7 +256,7 @@ class Connection:
 
 class Network:
     'Class that holds information about topology'
-    def __init__(self):
+    def __init__(self, JSON_FILENAME):
         root = Path(__file__).parent.parent
         # DICTIONARY of LINES objects
         self._lines: dict = {}  # Dictionary of Line objects
@@ -252,9 +265,12 @@ class Network:
         # DATAFRAME FOR COLLECTING SPECTRAL INFORMATION
         self._weighted_paths: pd.DataFrame = pd.DataFrame(columns=['Path', 'Total_Latency', 'Total_Noise', 'SNR'])
         self._route_space: pd.DataFrame = pd.DataFrame(columns=['Path', 'Channel_Occupancy'])
-        with open(root / 'resources/nodes.json') as f:
+        self._initial_switching_matrices = {}
+        with open(root / JSON_FILENAME) as f:
             json_dict = json.load(f)
         for key in json_dict.keys():
+            if "switching_matrix" in json_dict[key].keys():
+                self._initial_switching_matrices[key] = json_dict[key]["switching_matrix"]
             self._nodes[key] = Node(key, json_dict[key])
             for neighbour in json_dict[key]['connected_nodes']:
                 x1 = float(self._nodes[key].position[0])
@@ -263,11 +279,16 @@ class Network:
                 y2 = float(json_dict[neighbour]['position'][1])
                 length = math.sqrt(math.pow(x1 - x2, 2) + math.pow(y1 - y2, 2))
                 self._lines[key + neighbour] = Line(key + neighbour, length)
-        self.connect()
+        self.connect(json_dict)
         self._init_weighted_paths()
         self._init_route_space()
+        f.close()
 
     # Instance Variables Getters
+    @property
+    def initial_switching_matrices(self):
+        return self._initial_switching_matrices
+
     @property
     def weighted_paths(self):
         return self._weighted_paths
@@ -283,6 +304,10 @@ class Network:
         return self._lines
 
     # Instance Variables Setters
+    @initial_switching_matrices.setter
+    def initial_switching_matrices(self, switching_matrices):
+        self._initial_switching_matrices = switching_matrices
+
     @weighted_paths.setter
     def weighted_paths(self, dataframe: pd.DataFrame):
         self._weighted_paths = dataframe
@@ -300,19 +325,27 @@ class Network:
         self._lines = lines
 
     # Network class Methods
-    def connect(self):
+    def connect(self, json_dictionary: dict):
+        is_switching_matrix_provided: bool = False
         for node in self.nodes.values():
-            # Initialize each node's switching matrix
-            node.switching_matrix = {}
-            for neighbour in node.connected_nodes:
-                node.successive[node.label + neighbour] = self._lines[node.label + neighbour]
-                # For the switching matrix initialization
-                node.switching_matrix[neighbour] = {}
-                for other_neighbour in node.connected_nodes:
-                    if other_neighbour == neighbour:
-                        node.switching_matrix[neighbour][other_neighbour] = np.zeros(params.NUM_CHANNELS)
-                    elif other_neighbour != neighbour:
-                        node.switching_matrix[neighbour][other_neighbour] = np.ones(params.NUM_CHANNELS)
+            if "switching_matrix" in json_dictionary[node.label].keys():
+                is_switching_matrix_provided = True
+            if not is_switching_matrix_provided:    # if not provided, the switching matrix of each node is created manually
+                # Initialize each node's switching matrix
+                node.switching_matrix = {}
+                for neighbour in node.connected_nodes:
+                    node.successive[node.label + neighbour] = self._lines[node.label + neighbour]
+                    # For the switching matrix initialization
+                    node.switching_matrix[neighbour] = {}
+                    for other_neighbour in node.connected_nodes:
+                        if other_neighbour == neighbour:
+                            node.switching_matrix[neighbour][other_neighbour] = np.zeros(params.NUM_CHANNELS)
+                        elif other_neighbour != neighbour:
+                            node.switching_matrix[neighbour][other_neighbour] = np.ones(params.NUM_CHANNELS)
+            elif is_switching_matrix_provided:     # if provided, we use the given switching matrix for each node
+                node.switching_matrix = copy.deepcopy(json_dictionary[node.label]['switching_matrix'])
+                for neighbour in node.connected_nodes:
+                    node.successive[node.label + neighbour] = self._lines[node.label + neighbour]
         for line in self._lines.values():
             line.successive[line.label[-1]] = self._nodes[line.label[-1]]
 
@@ -368,7 +401,7 @@ class Network:
         for i in range(self.weighted_paths.shape[0]):
             self._route_space._set_value(i, 'Channel_Occupancy', ['free'] * 10)
 
-    def _update_route_space(self, path: list[str], channel: int):
+    def _update_route_space(self):
         # when we propagate a lightpath each line sets the state of the corresponding channel to occupied
         for i in range(self._route_space.shape[0]):
             path = self._route_space['Path'][i]
@@ -384,19 +417,15 @@ class Network:
                     if lines[line_index] != lines[-1]:  # if it is not the last line of the path we check both the line
                         # state and the arrival node's switching matrix in order to check if it's feasible for him to
                         # forward the connection
-                        if self._lines[lines[line_index]].state[channel] == 'free' \
-                          and self._nodes[lines[line_index][-1]].switching_matrix[lines[line_index][0]][lines[line_index+1][-1]][channel] == 1:
-                            channel_occupancy[channel] = 'free'
-                        else:
+                        if self._lines[lines[line_index]].state[channel] == 'occupied' \
+                          or self._nodes[lines[line_index][-1]].switching_matrix[lines[line_index][0]][lines[line_index+1][-1]][channel] == 0:
                             channel_occupancy[channel] = 'occupied'
                     elif lines[line_index] == lines[-1]: # if it is the last line of the path we just need to check the line state
                         # and not the last node's capability of switching the request
-                        if self._lines[lines[line_index]].state[channel] == 'free':
-                            channel_occupancy[channel] = 'free'
-                        else:
+                        if self._lines[lines[line_index]].state[channel] == 'occupied':
                             channel_occupancy[channel] = 'occupied'
             # update the overall path with the channel occupancy status
-            self._route_space._set_value(i, 'Channel_Occupancy', channel_occupancy)
+            self.route_space._set_value(i, 'Channel_Occupancy', copy.deepcopy(channel_occupancy))
 
     def draw(self):
         for node in self._nodes.values():
@@ -465,11 +494,12 @@ class Network:
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
-                    self._update_route_space(path_with_lowest_latency, channel)
+                    self._update_route_space()
                 elif len(path_with_lowest_latency) == 0:
                     connection.latency = 'None'
                     connection.snr = 0
         elif optimizeWhat == "snr":
+            index = 0
             for connection in connections_list:
                 path_with_best_snr, channel = self.find_best_snr(connection.input, connection.output)
                 if len(path_with_best_snr) > 0:
@@ -477,6 +507,7 @@ class Network:
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    self._update_route_space()
                 elif len(path_with_best_snr) == 0:
                     connection.latency = 'None'
                     connection.snr = 0
