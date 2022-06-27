@@ -171,8 +171,22 @@ class Line:
         self._length = length
         self._successive: dict = {}
         self._state: list[str] = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
+        self._n_amplifiers = math.floor(self._length/80000)
+        self._gain = 10**params.AMPLIFIERS_GAIN/10        # the variable gain is expressed in its natural value, not dB
+        self._noise_figure = 10**params.AMPLIFIERS_NOISE_FIGURE/10 # same as for gain
+
 
     # Instance Variables Getters
+    @property
+    def noise_figure(self):
+        return self._noise_figure
+
+    @property
+    def gain(self):
+        return self._gain
+    @property
+    def n_amplifiers(self):
+       return self._n_amplifiers
     @property
     def state(self):
         return self._state
@@ -186,7 +200,19 @@ class Line:
     def successive(self):
         return self._successive
 
-    # Instance Variables Getters
+    # Instance Variables Setters
+    @noise_figure.setter
+    def noise_figure(self, noise_figure):
+        self._noise_figure = noise_figure
+
+    @gain.setter
+    def gain(self, gain):
+        self._gain = gain
+
+    @n_amplifiers.setter
+    def n_amplifiers(self, n_ampl: int):
+        self._n_amplifiers = n_ampl
+
     @state.setter
     def state(self, state: list[str]):
         self._state = state
@@ -203,6 +229,10 @@ class Line:
         self._successive = successive
 
     # Line Class Methods
+    def ase_generation(self):
+        return self._n_amplifiers * sci_util.plank_constant * sci_util.c_band_center_frequency\
+               * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1)
+
     def latency_generation(self):
         return float(self._length / ((2 / 3) * sci_util.light_speed))
 
