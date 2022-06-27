@@ -6,6 +6,8 @@ import science_utils as sci_util
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from scipy import special
+
 import parameters as params
 
 
@@ -87,8 +89,13 @@ class Node:
         self._connected_nodes: list = dictionary['connected_nodes']
         self._successive: dict = {}
         self._switching_matrix = None
+        self._transceiver: str = "fixed_rate"  # fixed-rate is the default value if no other is provided
 
     # Instance Variables Getters
+    @property
+    def transceiver(self):
+        return self._transceiver
+
     @property
     def switching_matrix(self):
         return self._switching_matrix
@@ -110,6 +117,10 @@ class Node:
         return self._successive
 
     # Instance Variables Setters
+    @transceiver.setter
+    def transceiver(self, transceiver: str):
+        self._transceiver = transceiver
+
     @label.setter
     def label(self, label: str):
         self._label = label
@@ -218,8 +229,13 @@ class Connection:
         self._signal_power: float = signal_power
         self._latency: float = 0  # has to be initialized to zero
         self._snr: float = 0    # has to be initialized to zero
+        self._bitrate: float = 0
 
     # Instance Variables Getters
+    @property
+    def bitrate(self):
+        return self._bitrate
+
     @property
     def input(self):
         return self._input
@@ -237,6 +253,9 @@ class Connection:
         return self._snr
 
     # Instance Variables Setters
+    @bitrate.setter
+    def bitrate(self, bitrate: float):
+        self._bitrate = bitrate
     @input.setter
     def input(self, inp: str):
         self._input = inp
@@ -330,6 +349,8 @@ class Network:
         for node in self.nodes.values():
             if "switching_matrix" in json_dictionary[node.label].keys():
                 is_switching_matrix_provided = True
+            if "transceiver" in json_dictionary[node.label].keys():
+                node.transceiver = json_dictionary[node.label]["transceiver"]
             if not is_switching_matrix_provided:    # if not provided, the switching matrix of each node is created manually
                 # Initialize each node's switching matrix
                 node.switching_matrix = {}
@@ -343,6 +364,9 @@ class Network:
                         elif other_neighbour != neighbour:
                             node.switching_matrix[neighbour][other_neighbour] = np.ones(params.NUM_CHANNELS)
             elif is_switching_matrix_provided:     # if provided, we use the given switching matrix for each node
+                # we make a copy of it since we need to decouple the node's own switching matrix and the initial one
+                # that we store in the Network class. The node's one will be dinamically modified, we don't want to modify
+                # also the reference one store in Network class
                 node.switching_matrix = copy.deepcopy(json_dictionary[node.label]['switching_matrix'])
                 for neighbour in node.connected_nodes:
                     node.successive[node.label + neighbour] = self._lines[node.label + neighbour]
@@ -445,6 +469,29 @@ class Network:
         plt.grid()
         plt.show()
 
+    def calculate_bit_rate(self, path: list[str], strategy: str) -> float:
+        # initialize bitrate to zero
+        bitrate = 0
+        # retrieve the GSNR for the specified path
+        # first we convert the path which is a list of strings into
+        # a unique string in the form A->B->C->...
+        unique_string_path = '->'.join(path)
+        GSNR = self._weighted_paths[self._weighted_paths['Path'] == unique_string_path]['SNR'].values[0]
+        if strategy == "fixed_rate":
+            if GSNR >= (2 * special.erfcinv(2*params.BIT_ERROR_RATE)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+                bitrate = 100e9
+        elif strategy == "flex_rate":
+            if GSNR >= (2 * special.erfcinv(params.BIT_ERROR_RATE*2)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+                bitrate = 100e9
+            if GSNR >= ((14/3)*special.erfcinv(params.BIT_ERROR_RATE*3/2)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+                bitrate = 200e9
+            if GSNR >= (10*special.erfcinv(params.BIT_ERROR_RATE*8/3)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+                bitrate = 400e9
+        elif strategy == "shannon":
+            bitrate = (2*params.SYMBOL_RATE)*math.log(1+GSNR*params.SYMBOL_RATE/params.NOISE_BANDWIDTH,2)
+
+        return bitrate
+
     def find_best_snr(self, start_node: str, dst_node: str) -> (list[str], int):
         routes = self._weighted_paths[self._weighted_paths.Path.str.startswith(start_node) &
                                       self._weighted_paths.Path.str.endswith(dst_node)]
@@ -489,26 +536,28 @@ class Network:
         if optimizeWhat == "latency":
             for connection in connections_list:
                 path_with_lowest_latency, channel = self.find_best_latency(connection.input, connection.output)
-                if len(path_with_lowest_latency) > 0:
-                    lightpath = Lightpath(connection.signal_power, path_with_lowest_latency, channel)
+                if len(path_with_lowest_latency) > 0: # it means it was possible to find an available path
+                    lightpath = Lightpath(connection.signal_power, list(path_with_lowest_latency), channel)
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    connection.bitrate = self.calculate_bit_rate(path_with_lowest_latency, self._nodes[path_with_lowest_latency[0]].transceiver)
                     self._update_route_space()
-                elif len(path_with_lowest_latency) == 0:
+                elif len(path_with_lowest_latency) == 0: # it means it was not possible to find an available path
                     connection.latency = 'None'
                     connection.snr = 0
         elif optimizeWhat == "snr":
-            index = 0
             for connection in connections_list:
                 path_with_best_snr, channel = self.find_best_snr(connection.input, connection.output)
-                if len(path_with_best_snr) > 0:
-                    lightpath = Lightpath(connection.signal_power,path_with_best_snr,channel)
+                if len(path_with_best_snr) > 0:  # it means it was possible to find an available path
+                    lightpath = Lightpath(connection.signal_power, list(path_with_best_snr), channel)
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    connection.bitrate = self.calculate_bit_rate(path_with_best_snr,
+                                                                 self._nodes[path_with_best_snr[0]].transceiver)
                     self._update_route_space()
-                elif len(path_with_best_snr) == 0:
+                elif len(path_with_best_snr) == 0:  # it means it was not possible to find an available path
                     connection.latency = 'None'
                     connection.snr = 0
 
