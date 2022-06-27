@@ -233,6 +233,7 @@ class Line:
         return self._n_amplifiers * sci_util.plank_constant * sci_util.c_band_center_frequency\
                * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1)
 
+
     def latency_generation(self):
         return float(self._length / ((2 / 3) * sci_util.light_speed))
 
