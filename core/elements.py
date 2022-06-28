@@ -290,15 +290,28 @@ class Line:
         self._successive = successive
 
     # Line Class Methods
-    def nli_generation(self, lightpath: Lightpath):
+    def optimized_launch_power(self):
+        # This method determined the optimal launch power to propagate a signal over the line
+        # exploiting the LOGO strategy (Local Optimization Global Optimization)
+        eta = (16 / (27 * math.pi)) \
+              * math.log(((math.pi ** 2) / 2) * (params.FIBER_BETA * (params.SYMBOL_RATE ** 2) / params.FIBER_ALPHA) \
+                         * (params.NUM_CHANNELS ** (2 * params.SYMBOL_RATE / params.CHANNELS_SPACING)), math.e) \
+              * (params.FIBER_ALPHA / params.FIBER_BETA) * (
+                          (params.FIBER_GAMMA ** 2) * (self._L_eff ** 2) / (params.SYMBOL_RATE ** 3))
+        return np.cbrt(self.ase_generation()/(2*params.NOISE_BANDWIDTH*self._n_span*eta))
+
+    def nli_generation(self, lightpath_power: float):
+        # This method computes the non linear interferences that the signal will be impaired with.
+        # They depends on the fiber parameters, the symbol rate, the signal power and the noise bandwidth
         eta = (16/(27*math.pi))\
               * math.log(((math.pi**2)/2)*(params.FIBER_BETA*(params.SYMBOL_RATE**2)/params.FIBER_ALPHA)\
               * (params.NUM_CHANNELS**(2*params.SYMBOL_RATE/params.CHANNELS_SPACING)), math.e)\
               * (params.FIBER_ALPHA/params.FIBER_BETA)*((params.FIBER_GAMMA**2)*(self._L_eff**2)/(params.SYMBOL_RATE**3))
 
-        return (lightpath.signal_power**3)*eta*params.NOISE_BANDWIDTH
+        return (lightpath_power**3)*eta*params.NOISE_BANDWIDTH
 
     def ase_generation(self):
+        # This method computes the Amplified Spontaneous Emissions
         return self._n_amplifiers * sci_util.plank_constant * sci_util.c_band_center_frequency\
                * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1)
 
@@ -306,7 +319,7 @@ class Line:
         return float(self._length / ((2 / 3) * sci_util.light_speed))
 
     def noise_generation(self, signal_power: float):
-        return 1e-9 * signal_power * self._length
+        return self.ase_generation() + self.nli_generation(signal_power)
 
     def probe(self, sig_info: Signal_Information):
         sig_info.increment_noise_power(self.noise_generation(sig_info.signal_power))
