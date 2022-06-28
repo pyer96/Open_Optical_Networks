@@ -72,6 +72,16 @@ class Lightpath(Signal_Information):
     def __init__(self, signal_power: float, path: list, channel: int):
         Signal_Information.__init__(self, signal_power, path)
         self._channel = channel
+        self._Rs = params.SYMBOL_RATE
+        self._df = params.CHANNELS_SPACING
+
+    @property
+    def df(self):
+        return self._df
+
+    @property
+    def Rs(self):
+        return self._Rs
 
     @property
     def channel(self):
@@ -80,6 +90,14 @@ class Lightpath(Signal_Information):
     @channel.setter
     def channel(self, ch: int):
         self._channel = ch
+
+    @Rs.setter
+    def Rs(self, Rs: float):
+        self._Rs = Rs
+
+    @df.setter
+    def df(self, df: float):
+        self._df = df
 
 
 class Node:
@@ -171,12 +189,35 @@ class Line:
         self._length = length
         self._successive: dict = {}
         self._state: list[str] = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
-        self._n_amplifiers = math.floor(self._length/80000)
+        self._n_amplifiers = math.floor(self._length/params.DISTANCE_BETWEEN_AMP)
         self._gain = 10**params.AMPLIFIERS_GAIN/10        # the variable gain is expressed in its natural value, not dB
         self._noise_figure = 10**params.AMPLIFIERS_NOISE_FIGURE/10 # same as for gain
-
-
+        self._alpha: float = params.FIBER_ALPHA
+        self._beta: float = params.FIBER_BETA
+        self._gamma: float = params.FIBER_GAMMA
+        self._L_eff: float = 1/(2*self._alpha)
+        self._n_span = int(np.ceil(self._length / params.DISTANCE_BETWEEN_AMP))
     # Instance Variables Getters
+    @property
+    def n_span(self):
+        return self._n_span
+
+    @property
+    def L_eff(self):
+        return self._L_eff
+
+    @property
+    def gamma(self):
+        return self._gamma
+
+    @property
+    def beta(self):
+        return self._beta
+
+    @property
+    def alpha(self):
+        return self._alpha
+
     @property
     def noise_figure(self):
         return self._noise_figure
@@ -201,6 +242,26 @@ class Line:
         return self._successive
 
     # Instance Variables Setters
+    @n_span.setter
+    def n_span(self, n_span: int):
+        self._n_span = n_span
+
+    @L_eff.setter
+    def L_eff(self, L_eff: float):
+        self._L_eff = L_eff
+
+    @gamma.setter
+    def gamma(self, gamma: float):
+        self._gamma = gamma
+
+    @beta.setter
+    def beta(self, beta: float):
+        self._beta = beta
+
+    @alpha.setter
+    def alpha(self, alpha: float):
+        self._alpha = alpha
+
     @noise_figure.setter
     def noise_figure(self, noise_figure):
         self._noise_figure = noise_figure
@@ -229,10 +290,17 @@ class Line:
         self._successive = successive
 
     # Line Class Methods
+    def nli_generation(self, lightpath: Lightpath):
+        eta = (16/(27*math.pi))\
+              * math.log(((math.pi**2)/2)*(params.FIBER_BETA*(params.SYMBOL_RATE**2)/params.FIBER_ALPHA)\
+              * (params.NUM_CHANNELS**(2*params.SYMBOL_RATE/params.CHANNELS_SPACING)), math.e)\
+              * (params.FIBER_ALPHA/params.FIBER_BETA)*((params.FIBER_GAMMA**2)*(self._L_eff**2)/(params.SYMBOL_RATE**3))
+
+        return (lightpath.signal_power**3)*eta*params.NOISE_BANDWIDTH
+
     def ase_generation(self):
         return self._n_amplifiers * sci_util.plank_constant * sci_util.c_band_center_frequency\
                * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1)
-
 
     def latency_generation(self):
         return float(self._length / ((2 / 3) * sci_util.light_speed))
