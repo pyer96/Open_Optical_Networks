@@ -2,6 +2,9 @@ import copy
 import json
 import math
 from pathlib import Path
+
+import numpy
+
 import science_utils as sci_util
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -18,8 +21,13 @@ class Signal_Information:
         self._noise_power = float(0)
         self._latency = float(0)
         self._path: list = path
+        self._isnr: float = float(0)
 
     # Instance Variables Getters
+    @property
+    def isnr(self):
+        return self._isnr
+
     @property
     def signal_power(self):
         return self._signal_power
@@ -37,6 +45,10 @@ class Signal_Information:
         return self._path
 
     # Instance Variables Setters
+    @isnr.setter
+    def isnr(self, isnr: float):
+        self._isnr = isnr
+
     @signal_power.setter
     def signal_power(self, signal_power):
         self._signal_power = signal_power
@@ -54,6 +66,9 @@ class Signal_Information:
         self._path = path
 
     # Instance Methods
+    def increment_isnr(self, increment: float):
+        self._isnr = self._isnr + increment
+
     def increment_signal_power(self, increment: float):
         self._signal_power += increment
 
@@ -162,8 +177,6 @@ class Node:
     # Node Class Methods
     def propagate(self, lightpath: Lightpath):
         lightpath.path.remove(self._label)  # path is a list
-        if lightpath.path.__len__() != 0:  # if this node is not the destination one
-            self.successive[self._label + lightpath.path[0]].propagate(lightpath)
         if params.DINAMIC_SWITCHING_MATRIX == True:
             # Set the switching matrix of the next node to zero for the neighboring channels to the one being switched
             if lightpath.path.__len__() > 1:
@@ -176,6 +189,10 @@ class Node:
                 if dx_channel <= 9:     # channel 9 doesn't cause any interference on the not existing channel 10
                     self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]] \
                         .switching_matrix[self._label][lightpath.path[1]][dx_channel] = 0
+        if lightpath.path.__len__() != 0:  # if this node is not the destination one
+            lightpath.signal_power = self.successive[self._label + lightpath.path[0]].optimized_launch_power()
+            self.successive[self._label + lightpath.path[0]].propagate(lightpath)
+
 
     def probe(self, sig_info: Signal_Information):
         sig_info.path.remove(self._label)   # path is a list
@@ -190,8 +207,8 @@ class Line:
         self._successive: dict = {}
         self._state: list[str] = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
         self._n_amplifiers = math.floor(self._length/params.DISTANCE_BETWEEN_AMP)
-        self._gain = 10**params.AMPLIFIERS_GAIN/10        # the variable gain is expressed in its natural value, not dB
-        self._noise_figure = 10**params.AMPLIFIERS_NOISE_FIGURE/10 # same as for gain
+        self._gain = 10**(params.AMPLIFIERS_GAIN/10)       # the variable gain is expressed in its natural value, not dB
+        self._noise_figure = 10**(params.AMPLIFIERS_NOISE_FIGURE/10)   # same as for gain
         self._alpha: float = params.FIBER_ALPHA
         self._beta: float = params.FIBER_BETA
         self._gamma: float = params.FIBER_GAMMA
@@ -290,7 +307,8 @@ class Line:
         self._successive = successive
 
     # Line Class Methods
-    def optimized_launch_power(self):
+    def optimized_launch_power(self) -> np.ndarray:
+        # The returned launch power is in linear scale, not dBm
         # This method determined the optimal launch power to propagate a signal over the line
         # exploiting the LOGO strategy (Local Optimization Global Optimization)
         eta = (16 / (27 * math.pi)) \
@@ -298,32 +316,37 @@ class Line:
                          * (params.NUM_CHANNELS ** (2 * params.SYMBOL_RATE / params.CHANNELS_SPACING)), math.e) \
               * (params.FIBER_ALPHA / params.FIBER_BETA) * (
                           (params.FIBER_GAMMA ** 2) * (self._L_eff ** 2) / (params.SYMBOL_RATE ** 3))
-        return np.cbrt(self.ase_generation()/(2*params.NOISE_BANDWIDTH*self._n_span*eta))
+        launch_power = np.cbrt((self.ase_generation())/(2*params.NOISE_BANDWIDTH*self._n_span*eta))
+        return launch_power
 
-    def nli_generation(self, lightpath_power: float):
+    def nli_generation(self, lightpath_power: float) -> float:
+        # The returned NLI is expressed in Linear scale, not dBm
         # This method computes the non linear interferences that the signal will be impaired with.
         # They depends on the fiber parameters, the symbol rate, the signal power and the noise bandwidth
         eta = (16/(27*math.pi))\
               * math.log(((math.pi**2)/2)*(params.FIBER_BETA*(params.SYMBOL_RATE**2)/params.FIBER_ALPHA)\
               * (params.NUM_CHANNELS**(2*params.SYMBOL_RATE/params.CHANNELS_SPACING)), math.e)\
               * (params.FIBER_ALPHA/params.FIBER_BETA)*((params.FIBER_GAMMA**2)*(self._L_eff**2)/(params.SYMBOL_RATE**3))
+        return (lightpath_power**3)*eta*params.NOISE_BANDWIDTH*self.n_span
 
-        return (lightpath_power**3)*eta*params.NOISE_BANDWIDTH
-
-    def ase_generation(self):
+    def ase_generation(self) -> float:
         # This method computes the Amplified Spontaneous Emissions
-        return self._n_amplifiers * sci_util.plank_constant * sci_util.c_band_center_frequency\
-               * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1)
+        # The returned ASE is expressed in linear units
+        return self._n_amplifiers * (sci_util.plank_constant * sci_util.c_band_center_frequency\
+               * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1))
 
     def latency_generation(self):
         return float(self._length / ((2 / 3) * sci_util.light_speed))
 
     def noise_generation(self, signal_power: float):
-        return self.ase_generation() + self.nli_generation(signal_power)
+        ase = self.ase_generation()
+        nli = self.nli_generation(signal_power)
+        return ase + nli
 
     def probe(self, sig_info: Signal_Information):
         sig_info.increment_noise_power(self.noise_generation(sig_info.signal_power))
         sig_info.increment_latency(self.latency_generation())
+        sig_info.increment_isnr(self.noise_generation(sig_info.signal_power) / sig_info.signal_power)
         self.successive[sig_info.path[0]].probe(sig_info)
 
     def propagate(self, lightpath: Lightpath):
@@ -331,6 +354,7 @@ class Line:
         self._state[lightpath.channel] = 'occupied'
         lightpath.increment_noise_power(self.noise_generation(lightpath.signal_power))
         lightpath.increment_latency(self.latency_generation())
+        lightpath.increment_isnr(self.noise_generation(lightpath.signal_power) / lightpath.signal_power)
         self.successive[lightpath.path[0]].propagate(lightpath)
 
 
@@ -528,8 +552,7 @@ class Network:
                         self._weighted_paths = self._weighted_paths.append({'Path': '->'.join(path),
                                                                             'Total_Latency': signal_after_propagation.latency,
                                                                             'Total_Noise': signal_after_propagation.noise_power,
-                                                                            'SNR': 10 * math.log(
-                                                                                signal_after_propagation.signal_power / signal_after_propagation.noise_power)},
+                                                                            'SNR': 10 * math.log(1 / signal_after_propagation.isnr, 10)},
                                                                            ignore_index=True)
 
     def _init_route_space(self):
@@ -581,27 +604,24 @@ class Network:
         plt.grid()
         plt.show()
 
-    def calculate_bit_rate(self, path: list[str], strategy: str) -> float:
+
+    def calculate_bit_rate(self, lightpath: Lightpath, strategy: str) -> float:
         # initialize bitrate to zero
         bitrate = 0
-        # retrieve the GSNR for the specified path
-        # first we convert the path which is a list of strings into
-        # a unique string in the form A->B->C->...
-        unique_string_path = '->'.join(path)
-        GSNR = self._weighted_paths[self._weighted_paths['Path'] == unique_string_path]['SNR'].values[0]
+        # retrieve the GSNR specific of the propagated lightpath ed path
+        GSNR = 1/lightpath.isnr
         if strategy == "fixed_rate":
-            if GSNR >= (2 * special.erfcinv(2*params.BIT_ERROR_RATE)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+            if GSNR >= (2 * special.erfcinv(2*params.BIT_ERROR_RATE)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
                 bitrate = 100e9
         elif strategy == "flex_rate":
-            if GSNR >= (2 * special.erfcinv(params.BIT_ERROR_RATE*2)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+            if GSNR >= (2 * special.erfcinv(params.BIT_ERROR_RATE*2)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
                 bitrate = 100e9
-            if GSNR >= ((14/3)*special.erfcinv(params.BIT_ERROR_RATE*3/2)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+            if GSNR >= ((14/3)*(special.erfcinv(params.BIT_ERROR_RATE*3/2)**2))*lightpath.Rs/params.NOISE_BANDWIDTH:
                 bitrate = 200e9
-            if GSNR >= (10*special.erfcinv(params.BIT_ERROR_RATE*8/3)**2)*params.SYMBOL_RATE/params.NOISE_BANDWIDTH:
+            if GSNR >= (10*special.erfcinv(params.BIT_ERROR_RATE*8/3)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
                 bitrate = 400e9
         elif strategy == "shannon":
-            bitrate = (2*params.SYMBOL_RATE)*math.log(1+GSNR*params.SYMBOL_RATE/params.NOISE_BANDWIDTH,2)
-
+            bitrate = (2*params.SYMBOL_RATE)*math.log(1+GSNR*lightpath.Rs/params.NOISE_BANDWIDTH,2)
         return bitrate
 
     def find_best_snr(self, start_node: str, dst_node: str) -> (list[str], int):
@@ -653,7 +673,7 @@ class Network:
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
-                    connection.bitrate = self.calculate_bit_rate(path_with_lowest_latency, self._nodes[path_with_lowest_latency[0]].transceiver)
+                    connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation, self._nodes[path_with_lowest_latency[0]].transceiver)
                     self._update_route_space()
                 elif len(path_with_lowest_latency) == 0: # it means it was not possible to find an available path
                     connection.latency = 'None'
@@ -666,8 +686,7 @@ class Network:
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
-                    connection.bitrate = self.calculate_bit_rate(path_with_best_snr,
-                                                                 self._nodes[path_with_best_snr[0]].transceiver)
+                    connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation, self._nodes[path_with_best_snr[0]].transceiver)
                     self._update_route_space()
                 elif len(path_with_best_snr) == 0:  # it means it was not possible to find an available path
                     connection.latency = 'None'
