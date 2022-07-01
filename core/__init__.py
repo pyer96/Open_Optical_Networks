@@ -3,6 +3,7 @@ import utils
 import random
 import parameters as params
 
+
 def lab4exercises():
     network = elements.Network(params.JSON_FILE)
     network.draw()
@@ -130,7 +131,8 @@ def lab7_second_part_exercise():
     del list_of_connections
     del network
 
-def same_as_lab7_with_ase_nli_and_optimal_launch_power():
+
+def lab9_same_as_lab7_with_ase_nli_and_optimal_launch_power():
     network = elements.Network('resources/nodes_full_fixed_rate.json')
     network.draw()
     # Create 100 connections with random starting and ending nodes and signal power of 1W
@@ -167,16 +169,42 @@ def same_as_lab7_with_ase_nli_and_optimal_launch_power():
     del network
 
 
+def lab9_exercise7():
+    JSON_FILES = ['resources/nodes_full_fixed_rate.json', 'resources/nodes_full_flex_rate.json',
+                  'resources/nodes_full_shannon.json']
+    for file in JSON_FILES:
+        network = elements.Network(file)
+        network.draw()
+        list_of_nodes = list(network.nodes.keys())
+
+        # TRAFFIC MATRIX GENERATION
+        TRAFFIC_MATRIX = {}
+        for node_start in list_of_nodes:
+            TRAFFIC_MATRIX[node_start] = {}
+
+        network_not_saturated = True
+        M = 1
+        while network_not_saturated:
+            # TRAFFIC GENERATION
+            for node_start in list_of_nodes:
+                for node_end in list_of_nodes:
+                    if node_start == node_end:
+                        TRAFFIC_MATRIX[node_start][node_end] = 0
+                    else:
+                        TRAFFIC_MATRIX[node_start][node_end] = M * 100e9
+            network_not_saturated, list_of_connections = network.manage_traffic_matrix(TRAFFIC_MATRIX)
+            M = M + 1
+        print("M = " + str(M))
+        utils.plot_connections_bitrate_distribution(list_of_connections)
+
+
 def main():
     #   lab4exercises()
     #   lab5exercise()
     #   lab7exercise()
     #   lab7_second_part_exercise()
-    same_as_lab7_with_ase_nli_and_optimal_launch_power()
-
-
-
-
+    #   lab9_same_as_lab7_with_ase_nli_and_optimal_launch_power()
+    lab9_exercise7()
 
 
 

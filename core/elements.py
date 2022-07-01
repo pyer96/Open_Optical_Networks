@@ -2,15 +2,12 @@ import copy
 import json
 import math
 from pathlib import Path
-
-import numpy
-
 import science_utils as sci_util
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from scipy import special
-
+import random
 import parameters as params
 
 
@@ -190,6 +187,7 @@ class Node:
                     self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]] \
                         .switching_matrix[self._label][lightpath.path[1]][dx_channel] = 0
         if lightpath.path.__len__() != 0:  # if this node is not the destination one
+            # Set the optimal launch power according to the LOGO principle (Local Optimization Global Optimization)
             lightpath.signal_power = self.successive[self._label + lightpath.path[0]].optimized_launch_power()
             self.successive[self._label + lightpath.path[0]].propagate(lightpath)
 
@@ -604,7 +602,6 @@ class Network:
         plt.grid()
         plt.show()
 
-
     def calculate_bit_rate(self, lightpath: Lightpath, strategy: str) -> float:
         # initialize bitrate to zero
         bitrate = 0
@@ -621,7 +618,7 @@ class Network:
             if GSNR >= (10*special.erfcinv(params.BIT_ERROR_RATE*8/3)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
                 bitrate = 400e9
         elif strategy == "shannon":
-            bitrate = (2*params.SYMBOL_RATE)*math.log(1+GSNR*lightpath.Rs/params.NOISE_BANDWIDTH,2)
+            bitrate = (2*lightpath.Rs)*math.log(1+GSNR*lightpath.Rs/params.NOISE_BANDWIDTH, 2)
         return bitrate
 
     def find_best_snr(self, start_node: str, dst_node: str) -> (list[str], int):
@@ -692,6 +689,52 @@ class Network:
                     connection.latency = 'None'
                     connection.snr = 0
 
+    def manage_traffic_matrix(self, traffic_matrix):
+        # This method takes as input a traffic matrix and creates connections
+        # to fulfill the requests in it. When the network reaches saturation (this condition
+        # is represented by 10 consecutive connection requests rejected) this method stops
+        # and returns the list of allocated connections so they can be plotted
+        max_rejected_requests = 10
+        network_not_saturated = True
+
+        # Creates a list of connection requests
+        requests = []
+        for node_start in traffic_matrix.keys():
+            for node_end in traffic_matrix[node_start].keys():
+                if node_start != node_end and traffic_matrix[node_start][node_end] > 0:
+                    # Create a new connection to be made item in the list
+                    requests.append((node_start, node_end))
+
+        list_of_connections = []
+        rejection_counter = 0
+        # While there are still connections to be made
+        while len(requests) > 0:
+            # Select randomly a connection to be made
+            req = random.sample(requests, 1)
+            node_start = req[0][0]
+            node_end = req[0][1]
+            # Create the corresponding connection
+            connection = Connection(node_start, node_end, params.DEFAULT_SIGNAL_POWER)
+            # Stream the connection
+            self.stream([connection], "snr")
+            list_of_connections.append(connection)
+            # Check if the connection was rejected
+            if connection.latency != "None" and connection.snr != 0 and connection.bitrate != 0:
+                # The connection was served so we subtract the deployed bitrate from the
+                # one requested in the traffic matrix
+                traffic_matrix[node_start][node_end] -= connection.bitrate
+                # If we served all the requested capacity
+                if traffic_matrix[node_start][node_end] <= 0:
+                    # Remove the request from the list <requests>
+                    requests.remove((node_start, node_end))
+            else:  # The connection was rejected
+                rejection_counter += 1
+                if rejection_counter == max_rejected_requests:
+                    network_not_saturated = False
+                    break
+                # the request could not be served so we remove it
+                requests.remove((node_start, node_end))
+        return network_not_saturated, list_of_connections
 
 
 
