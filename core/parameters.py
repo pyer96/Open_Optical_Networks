@@ -3,7 +3,11 @@ import math
 JSON_FILE = 'resources/nodes_full.json'
 
 # ROADM parameters
-DINAMIC_SWITCHING_MATRIX = True
+DINAMIC_SWITCHING_MATRIX = False    # This means that a ROADM can't do a switching operation on a channel without
+                                    # disturbing the neighbouring ones. Dinamic switching matrix is intended in the
+                                    # sense that the switching matrices of the nodes are dinamically modified throughout
+                                    # the simulation.
+DEFAULT_TRANSCEIVER = "fixed_rate"   # Possible values: "fixed_rate", "flex_rate" and "shannon"
 # Signal Parameters
 DEFAULT_SIGNAL_POWER = 1
 NUM_CHANNELS = 10

@@ -11,7 +11,6 @@ import random
 import parameters as params
 
 
-
 class Signal_Information:
     def __init__(self, signal_power: float, path: list):
         self._signal_power: float = signal_power
@@ -119,7 +118,7 @@ class Node:
         self._connected_nodes: list = dictionary['connected_nodes']
         self._successive: dict = {}
         self._switching_matrix = None
-        self._transceiver: str = "fixed_rate"  # fixed-rate is the default value if no other is provided
+        self._transceiver: str = params.DEFAULT_TRANSCEIVER
 
     # Instance Variables Getters
     @property
@@ -178,12 +177,12 @@ class Node:
             # Set the switching matrix of the next node to zero for the neighboring channels to the one being switched
             if lightpath.path.__len__() > 1:
                 channel = lightpath.channel
-                sx_channel = channel-1
-                dx_channel = channel+1
-                if sx_channel >= 0:     # channel 0 doesn't cause any interference on the not existing channel -1
-                    self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]]\
+                sx_channel = channel - 1
+                dx_channel = channel + 1
+                if sx_channel >= 0:  # channel 0 doesn't cause any interference on the not existing channel -1
+                    self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]] \
                         .switching_matrix[self._label][lightpath.path[1]][sx_channel] = 0
-                if dx_channel <= 9:     # channel 9 doesn't cause any interference on the not existing channel 10
+                if dx_channel <= 9:  # channel 9 doesn't cause any interference on the not existing channel 10
                     self.successive[self._label + lightpath.path[0]].successive[lightpath.path[0]] \
                         .switching_matrix[self._label][lightpath.path[1]][dx_channel] = 0
         if lightpath.path.__len__() != 0:  # if this node is not the destination one
@@ -191,9 +190,8 @@ class Node:
             lightpath.signal_power = self.successive[self._label + lightpath.path[0]].optimized_launch_power()
             self.successive[self._label + lightpath.path[0]].propagate(lightpath)
 
-
     def probe(self, sig_info: Signal_Information):
-        sig_info.path.remove(self._label)   # path is a list
+        sig_info.path.remove(self._label)  # path is a list
         if sig_info.path.__len__() != 0:
             self.successive[self._label + sig_info.path[0]].probe(sig_info)
 
@@ -204,14 +202,15 @@ class Line:
         self._length = length
         self._successive: dict = {}
         self._state: list[str] = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
-        self._n_amplifiers = math.floor(self._length/params.DISTANCE_BETWEEN_AMP)
-        self._gain = 10**(params.AMPLIFIERS_GAIN/10)       # the variable gain is expressed in its natural value, not dB
-        self._noise_figure = 10**(params.AMPLIFIERS_NOISE_FIGURE/10)   # same as for gain
+        self._n_amplifiers = math.floor(self._length / params.DISTANCE_BETWEEN_AMP)
+        self._gain = 10 ** (params.AMPLIFIERS_GAIN / 10)  # the variable gain is expressed in its natural value, not dB
+        self._noise_figure = 10 ** (params.AMPLIFIERS_NOISE_FIGURE / 10)  # same as for gain
         self._alpha: float = params.FIBER_ALPHA
         self._beta: float = params.FIBER_BETA
         self._gamma: float = params.FIBER_GAMMA
-        self._L_eff: float = 1/(2*self._alpha)
+        self._L_eff: float = 1 / (2 * self._alpha)
         self._n_span = int(np.ceil(self._length / params.DISTANCE_BETWEEN_AMP))
+
     # Instance Variables Getters
     @property
     def n_span(self):
@@ -240,18 +239,23 @@ class Line:
     @property
     def gain(self):
         return self._gain
+
     @property
     def n_amplifiers(self):
-       return self._n_amplifiers
+        return self._n_amplifiers
+
     @property
     def state(self):
         return self._state
+
     @property
     def label(self):
         return self._label
+
     @property
     def length(self):
         return self._length
+
     @property
     def successive(self):
         return self._successive
@@ -292,6 +296,7 @@ class Line:
     @state.setter
     def state(self, state: list[str]):
         self._state = state
+
     @label.setter
     def label(self, label: str):
         self._label = label
@@ -313,25 +318,26 @@ class Line:
               * math.log(((math.pi ** 2) / 2) * (params.FIBER_BETA * (params.SYMBOL_RATE ** 2) / params.FIBER_ALPHA) \
                          * (params.NUM_CHANNELS ** (2 * params.SYMBOL_RATE / params.CHANNELS_SPACING)), math.e) \
               * (params.FIBER_ALPHA / params.FIBER_BETA) * (
-                          (params.FIBER_GAMMA ** 2) * (self._L_eff ** 2) / (params.SYMBOL_RATE ** 3))
-        launch_power = np.cbrt((self.ase_generation())/(2*params.NOISE_BANDWIDTH*self._n_span*eta))
+                      (params.FIBER_GAMMA ** 2) * (self._L_eff ** 2) / (params.SYMBOL_RATE ** 3))
+        launch_power = np.cbrt((self.ase_generation()) / (2 * params.NOISE_BANDWIDTH * self._n_span * eta))
         return launch_power
 
     def nli_generation(self, lightpath_power: float) -> float:
         # The returned NLI is expressed in Linear scale, not dBm
         # This method computes the non linear interferences that the signal will be impaired with.
         # They depends on the fiber parameters, the symbol rate, the signal power and the noise bandwidth
-        eta = (16/(27*math.pi))\
-              * math.log(((math.pi**2)/2)*(params.FIBER_BETA*(params.SYMBOL_RATE**2)/params.FIBER_ALPHA)\
-              * (params.NUM_CHANNELS**(2*params.SYMBOL_RATE/params.CHANNELS_SPACING)), math.e)\
-              * (params.FIBER_ALPHA/params.FIBER_BETA)*((params.FIBER_GAMMA**2)*(self._L_eff**2)/(params.SYMBOL_RATE**3))
-        return (lightpath_power**3)*eta*params.NOISE_BANDWIDTH*self.n_span
+        eta = (16 / (27 * math.pi)) \
+              * math.log(((math.pi ** 2) / 2) * (params.FIBER_BETA * (params.SYMBOL_RATE ** 2) / params.FIBER_ALPHA) \
+                         * (params.NUM_CHANNELS ** (2 * params.SYMBOL_RATE / params.CHANNELS_SPACING)), math.e) \
+              * (params.FIBER_ALPHA / params.FIBER_BETA) * (
+                          (params.FIBER_GAMMA ** 2) * (self._L_eff ** 2) / (params.SYMBOL_RATE ** 3))
+        return (lightpath_power ** 3) * eta * params.NOISE_BANDWIDTH * self.n_span
 
     def ase_generation(self) -> float:
         # This method computes the Amplified Spontaneous Emissions
         # The returned ASE is expressed in linear units
-        return self._n_amplifiers * (sci_util.plank_constant * sci_util.c_band_center_frequency\
-               * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1))
+        return self._n_amplifiers * (sci_util.plank_constant * sci_util.c_band_center_frequency
+                                     * params.NOISE_BANDWIDTH * self._noise_figure * (self._gain - 1))
 
     def latency_generation(self):
         return float(self._length / ((2 / 3) * sci_util.light_speed))
@@ -362,7 +368,7 @@ class Connection:
         self._output: str = out
         self._signal_power: float = signal_power
         self._latency: float = 0  # has to be initialized to zero
-        self._snr: float = 0    # has to be initialized to zero
+        self._snr: float = 0  # has to be initialized to zero
         self._bitrate: float = 0
 
     # Instance Variables Getters
@@ -373,15 +379,19 @@ class Connection:
     @property
     def input(self):
         return self._input
+
     @property
     def output(self):
         return self._output
+
     @property
     def signal_power(self):
         return self._signal_power
+
     @property
     def latency(self):
         return self._latency
+
     @property
     def snr(self):
         return self._snr
@@ -390,18 +400,23 @@ class Connection:
     @bitrate.setter
     def bitrate(self, bitrate: float):
         self._bitrate = bitrate
+
     @input.setter
     def input(self, inp: str):
         self._input = inp
+
     @output.setter
     def output(self, out: str):
         self._output = out
+
     @signal_power.setter
     def signal_power(self, sig_pow: float):
         self._signal_power = sig_pow
+
     @latency.setter
     def latency(self, latency: float):
         self._latency = latency
+
     @snr.setter
     def snr(self, snr: float):
         self._snr = snr
@@ -409,6 +424,7 @@ class Connection:
 
 class Network:
     'Class that holds information about topology'
+
     def __init__(self, JSON_FILENAME):
         root = Path(__file__).parent.parent
         # DICTIONARY of LINES objects
@@ -449,9 +465,11 @@ class Network:
     @property
     def route_space(self):
         return self._route_space
+
     @property
     def nodes(self):
         return self._nodes
+
     @property
     def lines(self):
         return self._lines
@@ -485,7 +503,7 @@ class Network:
                 is_switching_matrix_provided = True
             if "transceiver" in json_dictionary[node.label].keys():
                 node.transceiver = json_dictionary[node.label]["transceiver"]
-            if not is_switching_matrix_provided:    # if not provided, the switching matrix of each node is created manually
+            if not is_switching_matrix_provided:  # if not provided, the switching matrix of each node is created manually
                 # Initialize each node's switching matrix
                 node.switching_matrix = {}
                 for neighbour in node.connected_nodes:
@@ -497,7 +515,7 @@ class Network:
                             node.switching_matrix[neighbour][other_neighbour] = np.zeros(params.NUM_CHANNELS)
                         elif other_neighbour != neighbour:
                             node.switching_matrix[neighbour][other_neighbour] = np.ones(params.NUM_CHANNELS)
-            elif is_switching_matrix_provided:     # if provided, we use the given switching matrix for each node
+            elif is_switching_matrix_provided:  # if provided, we use the given switching matrix for each node
                 # we make a copy of it since we need to decouple the node's own switching matrix and the initial one
                 # that we store in the Network class. The node's one will be dinamically modified, we don't want to modify
                 # also the reference one store in Network class
@@ -550,7 +568,8 @@ class Network:
                         self._weighted_paths = self._weighted_paths.append({'Path': '->'.join(path),
                                                                             'Total_Latency': signal_after_propagation.latency,
                                                                             'Total_Noise': signal_after_propagation.noise_power,
-                                                                            'SNR': 10 * math.log(1 / signal_after_propagation.isnr, 10)},
+                                                                            'SNR': 10 * math.log(
+                                                                                1 / signal_after_propagation.isnr, 10)},
                                                                            ignore_index=True)
 
     def _init_route_space(self):
@@ -566,8 +585,8 @@ class Network:
             channel_occupancy = ['free'] * params.NUM_CHANNELS
             # for every route we prepare a list o all its line labels
             lines = []
-            for j in range(len(nodes)-1):
-                lines.append(nodes[j]+nodes[j+1])
+            for j in range(len(nodes) - 1):
+                lines.append(nodes[j] + nodes[j + 1])
             # for line we count for the occupied channels
             for line_index in range(len(lines)):
                 for channel in range(params.NUM_CHANNELS):
@@ -575,9 +594,11 @@ class Network:
                         # state and the arrival node's switching matrix in order to check if it's feasible for him to
                         # forward the connection
                         if self._lines[lines[line_index]].state[channel] == 'occupied' \
-                          or self._nodes[lines[line_index][-1]].switching_matrix[lines[line_index][0]][lines[line_index+1][-1]][channel] == 0:
+                                or self._nodes[lines[line_index][-1]].switching_matrix[lines[line_index][0]][
+                            lines[line_index + 1][-1]][channel] == 0:
                             channel_occupancy[channel] = 'occupied'
-                    elif lines[line_index] == lines[-1]: # if it is the last line of the path we just need to check the line state
+                    elif lines[line_index] == lines[
+                        -1]:  # if it is the last line of the path we just need to check the line state
                         # and not the last node's capability of switching the request
                         if self._lines[lines[line_index]].state[channel] == 'occupied':
                             channel_occupancy[channel] = 'occupied'
@@ -606,19 +627,21 @@ class Network:
         # initialize bitrate to zero
         bitrate = 0
         # retrieve the GSNR specific of the propagated lightpath ed path
-        GSNR = 1/lightpath.isnr
+        GSNR = 1 / lightpath.isnr
         if strategy == "fixed_rate":
-            if GSNR >= (2 * special.erfcinv(2*params.BIT_ERROR_RATE)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
+            if GSNR >= (2 * special.erfcinv(2 * params.BIT_ERROR_RATE) ** 2) * lightpath.Rs / params.NOISE_BANDWIDTH:
                 bitrate = 100e9
         elif strategy == "flex_rate":
-            if GSNR >= (2 * special.erfcinv(params.BIT_ERROR_RATE*2)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
+            if GSNR >= (2 * special.erfcinv(params.BIT_ERROR_RATE * 2) ** 2) * lightpath.Rs / params.NOISE_BANDWIDTH:
                 bitrate = 100e9
-            if GSNR >= ((14/3)*(special.erfcinv(params.BIT_ERROR_RATE*3/2)**2))*lightpath.Rs/params.NOISE_BANDWIDTH:
+            if GSNR >= ((14 / 3) * (
+                    special.erfcinv(params.BIT_ERROR_RATE * 3 / 2) ** 2)) * lightpath.Rs / params.NOISE_BANDWIDTH:
                 bitrate = 200e9
-            if GSNR >= (10*special.erfcinv(params.BIT_ERROR_RATE*8/3)**2)*lightpath.Rs/params.NOISE_BANDWIDTH:
+            if GSNR >= (
+                    10 * special.erfcinv(params.BIT_ERROR_RATE * 8 / 3) ** 2) * lightpath.Rs / params.NOISE_BANDWIDTH:
                 bitrate = 400e9
         elif strategy == "shannon":
-            bitrate = (2*lightpath.Rs)*math.log(1+GSNR*lightpath.Rs/params.NOISE_BANDWIDTH, 2)
+            bitrate = (2 * lightpath.Rs) * math.log(1 + GSNR * lightpath.Rs / params.NOISE_BANDWIDTH, 2)
         return bitrate
 
     def find_best_snr(self, start_node: str, dst_node: str) -> (list[str], int):
@@ -665,14 +688,16 @@ class Network:
         if optimizeWhat == "latency":
             for connection in connections_list:
                 path_with_lowest_latency, channel = self.find_best_latency(connection.input, connection.output)
-                if len(path_with_lowest_latency) > 0: # it means it was possible to find an available path
+                if len(path_with_lowest_latency) > 0:  # it means it was possible to find an available path
                     lightpath = Lightpath(connection.signal_power, list(path_with_lowest_latency), channel)
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
-                    connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
-                    connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation, self._nodes[path_with_lowest_latency[0]].transceiver)
+                    connection.snr = 10 * math.log(
+                        lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation,
+                                                                 self._nodes[path_with_lowest_latency[0]].transceiver)
                     self._update_route_space()
-                elif len(path_with_lowest_latency) == 0: # it means it was not possible to find an available path
+                elif len(path_with_lowest_latency) == 0:  # it means it was not possible to find an available path
                     connection.latency = 'None'
                     connection.snr = 0
         elif optimizeWhat == "snr":
@@ -682,8 +707,10 @@ class Network:
                     lightpath = Lightpath(connection.signal_power, list(path_with_best_snr), channel)
                     lightpath_after_propagation = self.propagate(lightpath)
                     connection.latency = lightpath_after_propagation.latency
-                    connection.snr = 10 * math.log(lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
-                    connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation, self._nodes[path_with_best_snr[0]].transceiver)
+                    connection.snr = 10 * math.log(
+                        lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation,
+                                                                 self._nodes[path_with_best_snr[0]].transceiver)
                     self._update_route_space()
                 elif len(path_with_best_snr) == 0:  # it means it was not possible to find an available path
                     connection.latency = 'None'
@@ -704,7 +731,6 @@ class Network:
                 if node_start != node_end and traffic_matrix[node_start][node_end] > 0:
                     # Create a new connection to be made item in the list
                     requests.append((node_start, node_end))
-
         list_of_connections = []
         rejection_counter = 0
         # While there are still connections to be made
@@ -736,9 +762,12 @@ class Network:
                 requests.remove((node_start, node_end))
         return network_not_saturated, list_of_connections
 
-
-
-
-
-
-
+    def reset_network(self):
+        # Reset the Lines Channel Occupancy
+        for line in self.lines:
+            line.state = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
+        # Reset Route Space
+        self._init_route_space()
+        # Reset the Nodes Switching Matrices
+        for node in self.nodes:
+            node.switching_matrix = copy.deepcopy(self.initial_switching_matrices[node.label])

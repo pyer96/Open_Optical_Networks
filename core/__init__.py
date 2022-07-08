@@ -184,6 +184,7 @@ def lab9_exercise7():
 
         network_not_saturated = True
         M = 1
+        connections = []
         while network_not_saturated:
             # TRAFFIC GENERATION
             for node_start in list_of_nodes:
@@ -193,9 +194,60 @@ def lab9_exercise7():
                     else:
                         TRAFFIC_MATRIX[node_start][node_end] = M * 100e9
             network_not_saturated, list_of_connections = network.manage_traffic_matrix(TRAFFIC_MATRIX)
+            connections.extend(list_of_connections)
             M = M + 1
         print("M = " + str(M))
-        utils.plot_connections_bitrate_distribution(list_of_connections)
+        utils.plot_connections_bitrate_distribution(connections)
+
+
+def Monte_Carlo_Sim():
+    # This is a Monte Carlo Simulation with the aim of collecting useful metrics of a network in order to estimate
+    # its performances. The considered digital twin emulates the physical layer of the optical infrastructure in terms
+    # of fiber cables, amplifiers, roadms, number of channel per fiber, transceivers' bitrate and the consequent signal
+    # quality.
+    # The derived performance metrics of interest are:
+    # > Total Capacity
+    # > Per Link Avg Capacity and GSNR
+    # > Per Link Min/Max Capacity and GSNR
+    # > Blocking Events
+
+    # Draw the NETWORK of INTERESTS
+    NETWORK_JSON_FILE = 'resources/279094/network.json'
+    network = elements.Network(NETWORK_JSON_FILE)
+    network.draw()
+
+    # Prepare a TRAFFIC MATRIX
+    TRAFFIC_MATRIX = {}
+    list_of_nodes = list(network.nodes.keys())
+    for node_start in list_of_nodes:
+        TRAFFIC_MATRIX[node_start] = {}
+
+    # Statistics Variables
+    Deployed_Traffic = [0] * 20
+    Congestion_Ratio = [0] * 20
+    Links_Occupancy = {}
+    for line in network.lines:
+        Links_Occupancy[line.label] = [0.0] * 20
+
+    # MONTE CARLO SIMULATION
+    MonteCarloIterations = 1000
+    for iteration in range(MonteCarloIterations):
+        network_not_saturated = True
+        M = 1
+        while network_not_saturated:
+            # TRAFFIC GENERATION
+            for node_start in list_of_nodes:
+                for node_end in list_of_nodes:
+                    if node_start == node_end:
+                        TRAFFIC_MATRIX[node_start][node_end] = 0
+                    else:
+                        TRAFFIC_MATRIX[node_start][node_end] = M * 100e9
+            network_not_saturated, list_of_connections = network.manage_traffic_matrix(TRAFFIC_MATRIX)
+            utils.update_links_occupancy(network, Links_Occupancy, M)
+            utils.update_deployed_traffic(list_of_connections, Deployed_Traffic, M)
+            utils.update_congestion_ratio(network, Congestion_Ratio, M)
+            M = M + 1
+        network.reset_network()
 
 
 def main():
@@ -204,8 +256,8 @@ def main():
     #   lab7exercise()
     #   lab7_second_part_exercise()
     #   lab9_same_as_lab7_with_ase_nli_and_optimal_launch_power()
-    lab9_exercise7()
-
+       lab9_exercise7()
+    #   Monte_Carlo_Sim()
 
 
 if __name__ == '__main__':
