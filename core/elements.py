@@ -612,7 +612,7 @@ class Network:
             for neighbour in node.connected_nodes:
                 x2 = self.nodes[neighbour].position[0]
                 y2 = self.nodes[neighbour].position[1]
-                plt.plot([x1 / 1e3, x2 / 1e3], [y1 / 1e3, y2 / 1e3], 'r', linewidth=0.3)
+                plt.plot([x1 / 1e3, x2 / 1e3], [y1 / 1e3, y2 / 1e3], '-ro', linewidth=0.3, markersize= 8)
             plt.annotate(node.label, (node.position[0] / 1e3, node.position[1] / 1e3),
                          size=13,
                          xytext=(node.position[0] / 1e3, node.position[1] / 1e3 + 20),
@@ -709,6 +709,7 @@ class Network:
                     connection.latency = lightpath_after_propagation.latency
                     connection.snr = 10 * math.log(
                         lightpath_after_propagation.signal_power / lightpath_after_propagation.noise_power)
+                    connection.snr = 10 * math.log(1 / lightpath_after_propagation.isnr)
                     connection.bitrate = self.calculate_bit_rate(lightpath_after_propagation,
                                                                  self._nodes[path_with_best_snr[0]].transceiver)
                     self._update_route_space()
@@ -764,10 +765,10 @@ class Network:
 
     def reset_network(self):
         # Reset the Lines Channel Occupancy
-        for line in self.lines:
+        for line in self.lines.values():
             line.state = ['free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free', 'free']
         # Reset Route Space
         self._init_route_space()
         # Reset the Nodes Switching Matrices
-        for node in self.nodes:
+        for node in self.nodes.values():
             node.switching_matrix = copy.deepcopy(self.initial_switching_matrices[node.label])

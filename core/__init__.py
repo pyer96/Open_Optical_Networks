@@ -212,7 +212,8 @@ def Monte_Carlo_Sim():
     # > Blocking Events
 
     # Draw the NETWORK of INTERESTS
-    NETWORK_JSON_FILE = 'resources/279094/network.json'
+    NETWORK_JSON_FILE = 'resources/279094/full_network.json'
+    #  NETWORK_JSON_FILE = 'resources/279094/not_full_network.json'
     network = elements.Network(NETWORK_JSON_FILE)
     network.draw()
 
@@ -223,18 +224,23 @@ def Monte_Carlo_Sim():
         TRAFFIC_MATRIX[node_start] = {}
 
     # Statistics Variables
-    Deployed_Traffic = [0] * 20
-    Congestion_Ratio = [0] * 20
+    Deployed_Traffic = [0.0] * 60  # expressed in bitrate
+    Congestion_Ratio = [0.0] * 60  # expressed in percentage
     Links_Occupancy = {}
-    for line in network.lines:
-        Links_Occupancy[line.label] = [0.0] * 20
+    for line in network.lines.values():
+        Links_Occupancy[line.label] = [0.0] * 60    # expressed in percentage
+    Connections = []
+    Occurrencies = [0] * 60 # To count how many times the simulation reaches a certain M
 
     # MONTE CARLO SIMULATION
-    MonteCarloIterations = 1000
+    # M increments but at each increment the network is restored
+    MonteCarloIterations = 50
     for iteration in range(MonteCarloIterations):
+        print("ITERATION "+str(iteration))
         network_not_saturated = True
         M = 1
         while network_not_saturated:
+            Occurrencies[M] += 1
             # TRAFFIC GENERATION
             for node_start in list_of_nodes:
                 for node_end in list_of_nodes:
@@ -246,8 +252,18 @@ def Monte_Carlo_Sim():
             utils.update_links_occupancy(network, Links_Occupancy, M)
             utils.update_deployed_traffic(list_of_connections, Deployed_Traffic, M)
             utils.update_congestion_ratio(network, Congestion_Ratio, M)
+            if M == 5:
+                Connections.extend(list_of_connections)
             M = M + 1
-        network.reset_network()
+            network.reset_network()
+    # PLOTS
+    print(Occurrencies)
+    utils.plot_deployed_traffic_overM(Deployed_Traffic, Occurrencies, MonteCarloIterations)
+    utils.plot_congestion_ratio_overM(Congestion_Ratio, Occurrencies, MonteCarloIterations)
+    utils.plot_links_occupancy_ratio_overM(Links_Occupancy, Occurrencies, MonteCarloIterations)
+    utils.plot_connections_bitrate_distribution(Connections)
+    utils.plot_connections_snr_distribution(Connections)
+    utils.plot_connections_latencies_distribution(Connections)
 
 
 def main():
@@ -256,8 +272,8 @@ def main():
     #   lab7exercise()
     #   lab7_second_part_exercise()
     #   lab9_same_as_lab7_with_ase_nli_and_optimal_launch_power()
-       lab9_exercise7()
-    #   Monte_Carlo_Sim()
+    #   lab9_exercise7()
+    Monte_Carlo_Sim()
 
 
 if __name__ == '__main__':

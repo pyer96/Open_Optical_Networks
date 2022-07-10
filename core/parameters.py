@@ -7,7 +7,7 @@ DINAMIC_SWITCHING_MATRIX = False    # This means that a ROADM can't do a switchi
                                     # disturbing the neighbouring ones. Dinamic switching matrix is intended in the
                                     # sense that the switching matrices of the nodes are dinamically modified throughout
                                     # the simulation.
-DEFAULT_TRANSCEIVER = "fixed_rate"   # Possible values: "fixed_rate", "flex_rate" and "shannon"
+DEFAULT_TRANSCEIVER = "shannon"   # Possible values: "fixed_rate", "flex_rate" and "shannon"
 # Signal Parameters
 DEFAULT_SIGNAL_POWER = 1
 NUM_CHANNELS = 10
@@ -16,7 +16,7 @@ SYMBOL_RATE = 32e9
 NOISE_BANDWIDTH = 12.5e9
 BIT_ERROR_RATE = 1e-3
 # Amplifiers Parameters
-DISTANCE_BETWEEN_AMP = 80000   # expressed in km
+DISTANCE_BETWEEN_AMP = 80000   # expressed in m
 AMPLIFIERS_GAIN = 16    # (expressed in dB)
 AMPLIFIERS_NOISE_FIGURE = 3    # (expressed in dB)
 # Fiber Parameters
