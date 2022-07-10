@@ -248,7 +248,9 @@ def Monte_Carlo_Sim():
                         TRAFFIC_MATRIX[node_start][node_end] = 0
                     else:
                         TRAFFIC_MATRIX[node_start][node_end] = M * 100e9
+            # Pass Traffic Matrix to network to stream it
             network_not_saturated, list_of_connections = network.manage_traffic_matrix(TRAFFIC_MATRIX)
+            # For later plotting purposes
             utils.update_links_occupancy(network, Links_Occupancy, M)
             utils.update_deployed_traffic(list_of_connections, Deployed_Traffic, M)
             utils.update_congestion_ratio(network, Congestion_Ratio, M)
